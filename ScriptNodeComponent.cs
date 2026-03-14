@@ -2,10 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
 using System.Linq;
 
+using Grasshopper.GUI;
+using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
+using Grasshopper.Kernel.Attributes;
 using Grasshopper.Kernel.Parameters;
 
 using GH_IO.Serialization;
@@ -29,6 +33,10 @@ namespace ScriptNodePlugin
         private DateTime _lastFileWrite = DateTime.MinValue;
         private ScriptFileWatcher _watcher;
         private bool _isRebuildScheduled;
+
+        // ── Public getters for MCP tools ───────────────────────
+        public string ScriptPath => _scriptPath;
+        public ScriptHeader CurrentHeader => _currentHeader;
 
         // The permanent script_path input is always at index 0
         private const int SCRIPT_PATH_INDEX = 0;
@@ -71,8 +79,8 @@ namespace ScriptNodePlugin
             if (!string.IsNullOrWhiteSpace(path))
                 path = Path.GetFullPath(path);
 
-            // 2. Handle script_path change
-            if (path != _scriptPath)
+            // 2. Handle script_path change or uninitialized watcher
+            if (path != _scriptPath || _watcher == null)
             {
                 _scriptPath = path;
                 SetupWatcher();
@@ -218,92 +226,133 @@ namespace ScriptNodePlugin
         {
             if (_currentHeader == null) return;
 
+            // ── Save all input wire connections BEFORE touching params ──
+            // Whatever OnParametersChanged does internally, we will
+            // forcibly restore these wires afterwards.
+            var savedSources = new Dictionary<string, List<IGH_Param>>();
+            foreach (var p in Params.Input.Skip(1))
+            {
+                if (p.SourceCount > 0)
+                    savedSources[p.Name] = p.Sources.ToList();
+            }
+
+            // ── Rebuild params ──
             RebuildDynamicInputs(_currentHeader.Inputs);
             RebuildDynamicOutputs(_currentHeader.Outputs);
 
             Params.OnParametersChanged();
             VariableParameterMaintenance();
+
+            // ── Restore input wire connections AFTER rebuild ──
+            foreach (var p in Params.Input.Skip(1))
+            {
+                if (savedSources.TryGetValue(p.Name, out var sources))
+                {
+                    foreach (var source in sources)
+                    {
+                        if (!p.Sources.Contains(source))
+                            p.AddSource(source);
+                    }
+                }
+            }
         }
 
         private void RebuildDynamicInputs(List<InputDef> expected)
         {
-            // Current dynamic inputs (skip index 0 = script_path)
-            var current = Params.Input.Skip(1).ToList();
+            // Phase 1: Remove defunct params (iterate backwards to keep indices stable)
+            for (int i = Params.Input.Count - 1; i >= 1; i--)
+            {
+                var p = Params.Input[i];
+                var def = expected.FirstOrDefault(d => d.Name == p.Name);
+                if (def.Name == null || !IsCompatibleParam(p, def))
+                {
+                    // This param is being deleted — clean up its wires
+                    p.RemoveAllSources();
+                    Params.Input.RemoveAt(i);
+                }
+            }
 
-            // Build target list
-            var targetParams = new List<IGH_Param>();
+            // Phase 2: Register genuinely new params via the proper GH API
             foreach (var def in expected)
             {
-                // Check if an existing param at this position has the same name and compatible type
-                var existing = current.FirstOrDefault(p => p.Name == def.Name);
-                if (existing != null && IsCompatibleParam(existing, def))
-                {
-                    // Keep existing param (preserves wires!)
-                    // But update access if it changed
-                    var wantedAccess = def.IsList ? GH_ParamAccess.list : GH_ParamAccess.item;
-                    if (existing.Access != wantedAccess)
-                        existing.Access = wantedAccess;
-                    targetParams.Add(existing);
-                }
-                else
-                {
-                    // Create new param
-                    var newParam = HeaderParser.CreateParamForType(def.TypeHint, def.Name, def.IsList);
-                    newParam.CreateAttributes();
-                    targetParams.Add(newParam);
-                }
+                if (Params.Input.Skip(1).Any(p => p.Name == def.Name)) continue;
+
+                var newParam = HeaderParser.CreateParamForType(def.TypeHint, def.Name, def.IsList);
+                newParam.CreateAttributes();
+                Params.RegisterInputParam(newParam);
             }
 
-            // Remove all dynamic inputs (from the end to avoid index shifting)
-            while (Params.Input.Count > 1)
+            // Phase 3: Sort in-place with RemoveAt+Insert (never Clear the list!)
+            // This is a plain list shuffle — it doesn't touch GH registration at all,
+            // so wires and attribute parenting on kept params remain intact.
+            for (int targetIdx = 1; targetIdx <= expected.Count; targetIdx++)
             {
-                var toRemove = Params.Input[Params.Input.Count - 1];
-                toRemove.RemoveAllSources();
-                Params.Input.RemoveAt(Params.Input.Count - 1);
-            }
+                var expectedName = expected[targetIdx - 1].Name;
+                for (int srcIdx = targetIdx; srcIdx < Params.Input.Count; srcIdx++)
+                {
+                    if (Params.Input[srcIdx].Name == expectedName)
+                    {
+                        if (srcIdx != targetIdx)
+                        {
+                            var p = Params.Input[srcIdx];
+                            Params.Input.RemoveAt(srcIdx);
+                            Params.Input.Insert(targetIdx, p);
+                        }
 
-            // Add target params
-            foreach (var p in targetParams)
-            {
-                if (p.Attributes == null) p.CreateAttributes();
-                Params.RegisterInputParam(p);
+                        // Update access if it changed
+                        var wantedAccess = expected[targetIdx - 1].IsList
+                            ? GH_ParamAccess.list : GH_ParamAccess.item;
+                        if (Params.Input[targetIdx].Access != wantedAccess)
+                            Params.Input[targetIdx].Access = wantedAccess;
+
+                        break;
+                    }
+                }
             }
         }
 
         private void RebuildDynamicOutputs(List<string> expected)
         {
-            var current = Params.Output.ToList();
+            // Phase 1: Remove defunct output params (backwards)
+            for (int i = Params.Output.Count - 1; i >= 0; i--)
+            {
+                var p = Params.Output[i];
+                if (!expected.Contains(p.Name))
+                {
+                    // Disconnect downstream wires from recipients
+                    foreach (var recipient in p.Recipients.ToList())
+                        recipient.RemoveSource(p);
+                    Params.Output.RemoveAt(i);
+                }
+            }
 
-            var targetParams = new List<IGH_Param>();
+            // Phase 2: Register genuinely new output params
             foreach (var name in expected)
             {
-                var existing = current.FirstOrDefault(p => p.Name == name);
-                if (existing != null)
-                {
-                    // Keep existing (preserves wires!)
-                    targetParams.Add(existing);
-                }
-                else
-                {
-                    var newParam = HeaderParser.CreateOutputParam(name);
-                    newParam.CreateAttributes();
-                    targetParams.Add(newParam);
-                }
+                if (Params.Output.Any(p => p.Name == name)) continue;
+
+                var newParam = HeaderParser.CreateOutputParam(name);
+                newParam.CreateAttributes();
+                Params.RegisterOutputParam(newParam);
             }
 
-            // Remove all outputs
-            while (Params.Output.Count > 0)
+            // Phase 3: Sort in-place (never Clear!)
+            for (int targetIdx = 0; targetIdx < expected.Count; targetIdx++)
             {
-                var toRemove = Params.Output[Params.Output.Count - 1];
-                toRemove.RemoveAllSources();
-                Params.Output.RemoveAt(Params.Output.Count - 1);
-            }
-
-            // Add target outputs
-            foreach (var p in targetParams)
-            {
-                if (p.Attributes == null) p.CreateAttributes();
-                Params.RegisterOutputParam(p);
+                var expectedName = expected[targetIdx];
+                for (int srcIdx = targetIdx; srcIdx < Params.Output.Count; srcIdx++)
+                {
+                    if (Params.Output[srcIdx].Name == expectedName)
+                    {
+                        if (srcIdx != targetIdx)
+                        {
+                            var p = Params.Output[srcIdx];
+                            Params.Output.RemoveAt(srcIdx);
+                            Params.Output.Insert(targetIdx, p);
+                        }
+                        break;
+                    }
+                }
             }
         }
 
@@ -474,12 +523,31 @@ namespace ScriptNodePlugin
             }, !string.IsNullOrEmpty(_scriptPath));
         }
 
+        // ── MCP Auto-Start ─────────────────────────────────────
+        public override void AddedToDocument(GH_Document document)
+        {
+            base.AddedToDocument(document);
+            McpServer.Instance.RegisterNode(this);
+            if (!McpServer.Instance.IsRunning)
+                McpServer.Instance.Start();
+
+            // Make sure the file watcher is initialized for components loaded from a file
+            SetupWatcher();
+        }
+
         // ── Cleanup ────────────────────────────────────────────
         public override void RemovedFromDocument(GH_Document document)
         {
+            McpServer.Instance.UnregisterNode(this);
             _watcher?.Dispose();
             _watcher = null;
             base.RemovedFromDocument(document);
+        }
+
+        // ── Custom Render: MCP Status Dot ─────────────────────
+        public override void CreateAttributes()
+        {
+            m_attributes = new ScriptNodeAttributes(this);
         }
 
         // ── Utility ────────────────────────────────────────────
@@ -508,5 +576,41 @@ namespace ScriptNodePlugin
         protected override Bitmap Icon => null; // v1: no custom icon
 
         public override GH_Exposure Exposure => GH_Exposure.primary;
+    }
+
+    // ── Custom Attributes for MCP indicator ────────────────────
+    /// <summary>
+    /// Draws a small green/red dot in the top-right corner of the component
+    /// to indicate whether the MCP server is running.
+    /// </summary>
+    public class ScriptNodeAttributes : GH_ComponentAttributes
+    {
+        public ScriptNodeAttributes(ScriptNodeComponent owner) : base(owner) { }
+
+        protected override void Render(GH_Canvas canvas, Graphics graphics, GH_CanvasChannel channel)
+        {
+            base.Render(canvas, graphics, channel);
+
+            if (channel == GH_CanvasChannel.Objects)
+            {
+                bool mcpRunning = McpServer.Instance.IsRunning;
+                var color = mcpRunning ? Color.FromArgb(80, 200, 120) : Color.FromArgb(220, 60, 60);
+
+                // Draw dot in the top-right corner of the component bounds
+                float dotSize = 8f;
+                float padding = 4f;
+                var bounds = Bounds;
+                var dotX = bounds.Right - dotSize - padding;
+                var dotY = bounds.Top + padding;
+
+                using (var brush = new SolidBrush(color))
+                using (var pen = new Pen(Color.FromArgb(80, 0, 0, 0), 0.5f))
+                {
+                    graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                    graphics.FillEllipse(brush, dotX, dotY, dotSize, dotSize);
+                    graphics.DrawEllipse(pen, dotX, dotY, dotSize, dotSize);
+                }
+            }
+        }
     }
 }

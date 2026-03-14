@@ -24,6 +24,7 @@
   <!-- System.Drawing for component icon -->
   <ItemGroup>
     <PackageReference Include="System.Drawing.Common" Version="7.0.0" ExcludeAssets="runtime" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" ExcludeAssets="runtime" />
   </ItemGroup>
 
   <!-- Reference WinForms for context menu support (ToolStripDropDown) -->
