@@ -13,7 +13,7 @@ using Grasshopper.Kernel.Attributes;
 using Grasshopper.Kernel.Parameters;
 
 using GH_IO.Serialization;
-using Rhino;
+
 
 #pragma warning disable CA1416 // System.Drawing cross-platform in Rhino context
 
@@ -125,7 +125,6 @@ namespace ScriptNodePlugin
                     if (!_isRebuildScheduled)
                     {
                         _isRebuildScheduled = true;
-                        // Schedule param rebuild OUTSIDE the solve
                         var doc = OnPingDocument();
                         doc?.ScheduleSolution(5, d =>
                         {
@@ -218,153 +217,81 @@ namespace ScriptNodePlugin
 
         // ── Parameter Rebuild ──────────────────────────────────
         /// <summary>
-        /// Rebuild dynamic input/output parameters to match the current header.
-        /// This is called from ScheduleSolution callback (safe to modify params).
-        /// Only changes params that are actually different to preserve wires.
+        /// Rebuild all dynamic parameters while preserving wire connections.
+        /// Uses the "Hops pattern": save live IGH_Param refs → unregister all →
+        /// register new → restore connections by name match.
+        /// Called from ScheduleSolution callback (safe to modify topology).
         /// </summary>
         private void RebuildParameters()
         {
             if (_currentHeader == null) return;
 
-            // ── Save all input wire connections BEFORE touching params ──
-            // Whatever OnParametersChanged does internally, we will
-            // forcibly restore these wires afterwards.
-            var savedSources = new Dictionary<string, List<IGH_Param>>();
-            foreach (var p in Params.Input.Skip(1))
-            {
-                if (p.SourceCount > 0)
-                    savedSources[p.Name] = p.Sources.ToList();
-            }
-
-            // ── Rebuild params ──
-            RebuildDynamicInputs(_currentHeader.Inputs);
-            RebuildDynamicOutputs(_currentHeader.Outputs);
-
-            Params.OnParametersChanged();
-            VariableParameterMaintenance();
-
-            // ── Restore input wire connections AFTER rebuild ──
-            foreach (var p in Params.Input.Skip(1))
-            {
-                if (savedSources.TryGetValue(p.Name, out var sources))
-                {
-                    foreach (var source in sources)
-                    {
-                        if (!p.Sources.Contains(source))
-                            p.AddSource(source);
-                    }
-                }
-            }
-        }
-
-        private void RebuildDynamicInputs(List<InputDef> expected)
-        {
-            // Phase 1: Remove defunct params (iterate backwards to keep indices stable)
-            for (int i = Params.Input.Count - 1; i >= 1; i--)
+            // ── 1. Save existing connections (live IGH_Param refs) ───
+            // The upstream/downstream param objects survive the rebuild because
+            // they belong to OTHER components — only our params are destroyed.
+            var savedInputSources = new Dictionary<string, List<IGH_Param>>();
+            for (int i = 1; i < Params.Input.Count; i++)
             {
                 var p = Params.Input[i];
-                var def = expected.FirstOrDefault(d => d.Name == p.Name);
-                if (def.Name == null || !IsCompatibleParam(p, def))
-                {
-                    // This param is being deleted — clean up its wires
-                    p.RemoveAllSources();
-                    Params.Input.RemoveAt(i);
-                }
+                if (p.SourceCount > 0)
+                    savedInputSources[p.NickName] = new List<IGH_Param>(p.Sources);
             }
 
-            // Phase 2: Register genuinely new params via the proper GH API
-            foreach (var def in expected)
+            var savedOutputRecipients = new Dictionary<string, List<IGH_Param>>();
+            for (int i = 0; i < Params.Output.Count; i++)
             {
-                if (Params.Input.Skip(1).Any(p => p.Name == def.Name)) continue;
+                var p = Params.Output[i];
+                if (p.Recipients.Count > 0)
+                    savedOutputRecipients[p.NickName] = new List<IGH_Param>(p.Recipients);
+            }
 
+            // ── 2. Unregister all dynamic params ─────────────────────
+            var inputsToRemove = Params.Input.Where(p => p.Name != "script_path").ToList();
+            foreach (var p in inputsToRemove)
+                Params.UnregisterInputParameter(p);
+
+            var outputsToRemove = Params.Output.ToList();
+            foreach (var p in outputsToRemove)
+                Params.UnregisterOutputParameter(p);
+
+            // ── 3. Register new params from header ───────────────────
+            foreach (var def in _currentHeader.Inputs)
+            {
                 var newParam = HeaderParser.CreateParamForType(def.TypeHint, def.Name, def.IsList);
                 newParam.CreateAttributes();
                 Params.RegisterInputParam(newParam);
             }
 
-            // Phase 3: Sort in-place with RemoveAt+Insert (never Clear the list!)
-            // This is a plain list shuffle — it doesn't touch GH registration at all,
-            // so wires and attribute parenting on kept params remain intact.
-            for (int targetIdx = 1; targetIdx <= expected.Count; targetIdx++)
+            foreach (var name in _currentHeader.Outputs)
             {
-                var expectedName = expected[targetIdx - 1].Name;
-                for (int srcIdx = targetIdx; srcIdx < Params.Input.Count; srcIdx++)
-                {
-                    if (Params.Input[srcIdx].Name == expectedName)
-                    {
-                        if (srcIdx != targetIdx)
-                        {
-                            var p = Params.Input[srcIdx];
-                            Params.Input.RemoveAt(srcIdx);
-                            Params.Input.Insert(targetIdx, p);
-                        }
-
-                        // Update access if it changed
-                        var wantedAccess = expected[targetIdx - 1].IsList
-                            ? GH_ParamAccess.list : GH_ParamAccess.item;
-                        if (Params.Input[targetIdx].Access != wantedAccess)
-                            Params.Input[targetIdx].Access = wantedAccess;
-
-                        break;
-                    }
-                }
-            }
-        }
-
-        private void RebuildDynamicOutputs(List<string> expected)
-        {
-            // Phase 1: Remove defunct output params (backwards)
-            for (int i = Params.Output.Count - 1; i >= 0; i--)
-            {
-                var p = Params.Output[i];
-                if (!expected.Contains(p.Name))
-                {
-                    // Disconnect downstream wires from recipients
-                    foreach (var recipient in p.Recipients.ToList())
-                        recipient.RemoveSource(p);
-                    Params.Output.RemoveAt(i);
-                }
-            }
-
-            // Phase 2: Register genuinely new output params
-            foreach (var name in expected)
-            {
-                if (Params.Output.Any(p => p.Name == name)) continue;
-
                 var newParam = HeaderParser.CreateOutputParam(name);
                 newParam.CreateAttributes();
                 Params.RegisterOutputParam(newParam);
             }
 
-            // Phase 3: Sort in-place (never Clear!)
-            for (int targetIdx = 0; targetIdx < expected.Count; targetIdx++)
-            {
-                var expectedName = expected[targetIdx];
-                for (int srcIdx = targetIdx; srcIdx < Params.Output.Count; srcIdx++)
-                {
-                    if (Params.Output[srcIdx].Name == expectedName)
-                    {
-                        if (srcIdx != targetIdx)
-                        {
-                            var p = Params.Output[srcIdx];
-                            Params.Output.RemoveAt(srcIdx);
-                            Params.Output.Insert(targetIdx, p);
-                        }
-                        break;
-                    }
-                }
-            }
-        }
+            Params.OnParametersChanged();
+            VariableParameterMaintenance();
 
-        /// <summary>
-        /// Check if an existing param is compatible with a new input definition.
-        /// Compatible means same param type family.
-        /// </summary>
-        private static bool IsCompatibleParam(IGH_Param existing, InputDef def)
-        {
-            // Create a temp param of the expected type and compare type names
-            var expected = HeaderParser.CreateParamForType(def.TypeHint, def.Name, def.IsList);
-            return existing.GetType() == expected.GetType();
+            // ── 4. Restore connections by name match ─────────────────
+            // Wires reconnect when param names match. Renamed/removed params
+            // intentionally lose their wires (correct behaviour).
+            for (int i = 1; i < Params.Input.Count; i++)
+            {
+                var p = Params.Input[i];
+                if (savedInputSources.TryGetValue(p.NickName, out var sources))
+                    foreach (var source in sources)
+                        p.AddSource(source);
+            }
+
+            // For outputs: recipients call AddSource on THEMSELVES
+            // (GH wiring is always from the receiver's perspective)
+            for (int i = 0; i < Params.Output.Count; i++)
+            {
+                var p = Params.Output[i];
+                if (savedOutputRecipients.TryGetValue(p.NickName, out var recipients))
+                    foreach (var recipient in recipients)
+                        recipient.AddSource(p);
+            }
         }
 
         // ── File Watcher ───────────────────────────────────────

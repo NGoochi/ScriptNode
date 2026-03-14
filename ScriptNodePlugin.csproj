@@ -33,4 +33,12 @@
     <Reference Include="$(PkgMicrosoft_NETFramework_ReferenceAssemblies_net48)\build\.NETFramework\v4.8\System.Windows.Forms.dll" Private="False" />
   </ItemGroup>
 
+  <!-- Post-build: copy .gha to Grasshopper Libraries folder -->
+  <Target Name="CopyToGrasshopperLibraries" AfterTargets="Build">
+    <Copy SourceFiles="$(TargetPath)"
+          DestinationFolder="$(APPDATA)\Grasshopper\Libraries"
+          SkipUnchangedFiles="true" />
+    <Message Importance="High" Text="→ Copied $(TargetFileName) to Grasshopper Libraries" />
+  </Target>
+
 </Project>
