@@ -10,133 +10,133 @@ Write complex Python logic in your preferred external IDE (like VS Code, Cursor,
 - **Dynamic Parameters**: Reads simple header comments in your code to automatically build Grasshopper inputs and outputs of the correct types.
 - **Wire Preservation**: When your script updates, only new/changed parameters are altered; existing wires stay connected.
 - **Integrated Logging**: Errors are displayed natively on the Grasshopper node and logged to a `gh_errors.log` file next to your script for easy debugging or AI context.
+- **Built-in MCP Server**: 9 tools that let AI coding agents inspect the canvas, read/write scripts, check errors, and verify outputs — all without manual relay.
 
-## Installation Process
+## Quick Start
+
+### For users (writing Python scripts)
+1. Install the plugin — see `setup/SETUP.md` for detailed instructions
+2. Read `scripting/FIRST_PROMPT.md` — this is the entry point for understanding the scripting workflow
+3. Copy `scripting/SCRIPT_TEMPLATE.py` as your starting point
+
+### For developers (modifying the C# plugin)
+1. Read `src/.context/HANDOFF.md` — the full plugin development brief
+2. Read `src/.context/DEVELOPMENT.md` — build, deploy, and debug workflow
+
+## Installation
 
 ### Prerequisites
-- Rhino 8 (Service Release 18 or newer recommended, tested on SR28)
+- Rhino 8 (Service Release 18 or newer, tested on SR28)
 - Windows 10/11 or macOS
 
-### Option A: Install from pre-built release (Recommended)
-1. Download the latest `ScriptNode.gha` file from the repository releases page.
-2. Open **Rhino 8** and launch **Grasshopper**.
-3. In Grasshopper, go to **File > Special Folders > Components Folder**.
-4. Drag and drop the `ScriptNode.gha` file into this folder.
-5. **Important for Windows Users:** Right-click the dragged `ScriptNode.gha` file, select **Properties**, and if you see an "Unblock" checkbox at the bottom under the Security section, check it and click Apply.
-6. Restart Rhino and Grasshopper.
+### Quick install
+- **Windows:** Run `setup/install_windows.bat` from the repo root
+- **macOS:** Run `setup/install_macos.sh` from the repo root
 
-### Option B: Build from source
-This project targets `net7.0` (required for Rhino 8 and its new UI/API models).
-1. Ensure the [.NET 7 SDK](https://dotnet.microsoft.com/download/dotnet/7.0) is installed.
-2. Clone this repository and open a terminal.
-3. Navigate to the `src` directory containing `ScriptNodePlugin.csproj`.
-4. Run `dotnet build -c Release`.
-5. The output `ScriptNodePlugin.gha` will be in `bin\Release\net7.0\`. 
-6. Drag this `.gha` file into Grasshopper to install it.
+### Manual install
+1. Copy `ScriptNodePlugin.gha` to your Grasshopper Libraries folder
+   - **Windows:** `%APPDATA%\Grasshopper\Libraries\`
+   - **macOS:** `~/Library/Application Support/McNeel/Rhinoceros/8.0/Plug-ins/Grasshopper/Libraries/`
+2. **Windows only:** Right-click the .gha → Properties → Unblock
+3. Restart Rhino + Grasshopper
+
+For full setup including MCP configuration for your code editor, see `setup/SETUP.md`.
 
 ## The ScriptNode Workflow
 
-ScriptNode revolutionizes how you work with Python in Grasshopper, bridging the gap between node-based visual logic and external IDE power. Here is the step-by-step workflow:
-
 ### Step 1: Place the Component
-Find the **ScriptNode** component (located under the **Script** tab in Grasshopper) and place it onto your canvas. 
+Find **ScriptNode** in the **Script** tab in Grasshopper and place it on the canvas.
 
-### Step 2: Establish the Link
-Use a standard Text Panel and type the **absolute path** to your empty or existing Python script (e.g., `C:\my_projects\my_script.py`). Connect this Text Panel into the component's `script_path` input.
+### Step 2: Link a Script
+Use a Panel to type the absolute path to your `.py` file. Connect it to `script_path`.
 
 ### Step 3: Define Parameters via Header
-Open your Python script in an external code editor (VS Code, Cursor, PyCharm, etc.). Structure the very top of your file to define the inputs and outputs your node needs:
-
 ```python
 #! python 3
 # NODE_INPUTS: point:Point3d, size:float, items:list[Brep]
 # NODE_OUTPUTS: result, log
 ```
 
-- **NODE_INPUTS**: A comma-separated list of `name:Type`. Use `list[Type]` to request List Access.
-- **Supported Types**: `Point3d`, `Vector3d`, `Plane`, `Line`, `Curve`, `Surface`, `Brep`, `Mesh`, `int`, `float`, `str`, `bool`, `color`, `geometry`.
-- **NODE_OUTPUTS**: A comma-separated list of output variable names.
+Supported types: `Point3d`, `Vector3d`, `Plane`, `Line`, `Curve`, `Surface`, `Brep`, `Mesh`, `int`, `float`, `str`, `bool`, `color`, `geometry`. Use `list[Type]` for list access.
 
-*The moment you hit Save in your editor, your ScriptNode component will detect the changes, read the header, and magically sprout those precise input and output params in Grasshopper!*
-
-### Step 4: Write Your Logic and See Live Updates
-Your scripted inputs (from `NODE_INPUTS`) are immediately available as variables in your script environment. Do your Rhino/Grasshopper logic, then set variables matching the `NODE_OUTPUTS` names.
-
+### Step 4: Write Logic, See Live Updates
 ```python
 import Rhino.Geometry as rg
 
-# Defensively set defaults if inputs are empty
-if size is None: 
-    size = 1.0
+if size is None: size = 1.0
 
-# Process the inputs
 result = []
 if items and point:
     for b in items:
-        # Move the breps
         b.Translate(rg.Vector3d(point) * size)
         result.append(b)
 
-# Set the log output for visibility
 log = f"Processed {len(result)} items."
 ```
 
-When you save the `.py` file, Grasshopper instantly recomputes. Wires connected to your old inputs/outputs stay perfectly intact.
+Save the file — Grasshopper recomputes instantly. Wires stay connected.
 
-### Step 5: Leverage AI Assistants (MCP Integration)
-ScriptNode includes a built-in MCP (Model Context Protocol) server. It runs locally and empowers external AI agents (like Claude Desktop, Cursor, or AI terminal tools) to inspect your GH canvas, read geometries, and edit your ScriptNode Python files directly.
-- The server auto-starts when the first ScriptNode is placed.
-- A **green dot** on the component means the server is actively running.
-- It listens on `http://127.0.0.1:9876/mcp`.
-- **Important:** Multiple ScriptNode components share a single MCP server.
+### Step 5: AI Agent Integration (MCP)
+The built-in MCP server auto-starts when the first ScriptNode is placed (green dot = active). It runs on `http://127.0.0.1:9876/mcp`.
 
-## Agent Configuration (MCP Server)
-
-### Available Tools
+## MCP Tools (9 total)
 
 | Tool | Description |
 |------|-------------|
 | `get_canvas_info` | Lists all components on the GH canvas with types, connections, and error status |
+| `get_component_outputs` | Reads actual output values from any component |
+| `get_rhino_command_history` | Reads Rhino's command history (catches print output and warnings) |
+| `clear_rhino_command_history` | Clears command history for isolated testing |
+| `run_rhino_command` | Sends a command to the Rhino command line |
 | `get_scriptnode_info` | Deep-dive into a ScriptNode: script path, parsed header, runtime messages |
 | `get_script_source` | Reads the Python script file contents |
 | `write_script_source` | Writes new code to the Python file (triggers auto-reload) |
 | `get_error_log` | Reads `gh_errors.log` for debugging |
-| `get_component_outputs` | Reads actual output values from any component |
 
+### Editor Configuration
 
-**Antigravity** — Add to your workspace MCP settings:
+**Cursor** — `.cursor/mcp.json`:
 ```json
-{
-  "mcpServers": {
-    "scriptnode": {
-      "serverURL": "http://127.0.0.1:9876/mcp"
-    }
-  }
-}
+{ "mcpServers": { "scriptnode": { "url": "http://127.0.0.1:9876/mcp" } } }
 ```
 
-**Claude Desktop** — Add to `claude_desktop_config.json`:
+**Antigravity** — Workspace MCP settings:
 ```json
-{
-  "mcpServers": {
-    "scriptnode": {
-      "url": "http://127.0.0.1:9876/mcp",
-      "transport": "streamable-http"
-    }
-  }
-}
+{ "mcpServers": { "scriptnode": { "serverURL": "http://127.0.0.1:9876/mcp" } } }
 ```
 
-**Cursor** — Add to `.cursor/mcp.json`:
+**Claude Desktop** — `claude_desktop_config.json`:
 ```json
-{
-  "mcpServers": {
-    "scriptnode": {
-      "url": "http://127.0.0.1:9876/mcp"
-    }
-  }
-}
+{ "mcpServers": { "scriptnode": { "url": "http://127.0.0.1:9876/mcp", "transport": "streamable-http" } } }
+```
+
+## Project Structure
+
+```
+GHP_DynamicNode/
+├── src/                        # C# plugin source
+│   ├── ScriptNodeComponent.cs  # Main component
+│   ├── McpServer.cs            # MCP server core
+│   ├── Tools/                  # MCP tool classes (3 files, 9 tools)
+│   ├── bin/Release/net7.0/     # Build output
+│   └── .context/               # Plugin dev bible
+├── scripting/                  # User/agent scripting docs
+│   ├── FIRST_PROMPT.md         # ← Start here for scripting
+│   ├── HEADER_PROTOCOL.md      # Input/output syntax
+│   ├── TYPE_LEXICON.md         # Complete type reference
+│   ├── SCRIPT_TEMPLATE.py      # Copy-paste starter
+│   ├── MCP_WORKFLOW.md         # MCP tools + debug protocol
+│   ├── CHAINING.md             # How scripts connect in GH
+│   ├── GOTCHAS.md              # Known issues + platform diffs
+│   ├── ALGORITHMS.md           # Generative design systems ref
+│   ├── PROJECT_CONTEXT.md      # Current design project brief
+│   └── examples/               # Example scripts + reference material
+├── setup/
+│   ├── SETUP.md                # Full install + config guide
+│   ├── install_windows.bat
+│   └── install_macos.sh
+└── README.md                   # ← You are here
 ```
 
 ---
-*Created by Nick Gauci with AI Assistance.*
+*Created by Nick Gauci with AI assistance.*

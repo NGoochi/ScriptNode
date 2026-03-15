@@ -1,0 +1,16 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+
+# Log files
+gh_errors.log
+
+# User-specific files
+*.user
+*.suo
+*.ide
+*.vs/
+.vscode/
+
+# Ignore everything else in the parent directory context if git is initialized there
+# (The user requested ONLY the src folder be committed)

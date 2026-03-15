@@ -1,16 +1,22 @@
-# Build output
-[Bb]in/
-[Oo]bj/
+# ── Build output ──────────────────────────────
+src/[Bb]in/
+src/[Oo]bj/
 
-# Log files
+# ── Log files ─────────────────────────────────
 gh_errors.log
 
-# User-specific files
+# ── IDE / user-specific ──────────────────────
 *.user
 *.suo
 *.ide
 *.vs/
 .vscode/
 
-# Ignore everything else in the parent directory context if git is initialized there
-# (The user requested ONLY the src folder be committed)
+# ── Excluded from repo ───────────────────────
+_archive/
+for testing/
+scripting/examples/
+
+# ── Build artifacts ──────────────────────────
+src/build.log
+src/msbuild.log
