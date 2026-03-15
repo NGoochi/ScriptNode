@@ -26,7 +26,7 @@ namespace ScriptNodePlugin
     /// </summary>
     public class ScriptNodeComponent : GH_Component, IGH_VariableParameterComponent
     {
-        // ── State ──────────────────────────────────────────────
+        // ── State ─────────────────────────────────────────────────
         private string _scriptPath;
         private string _lastSource;
         private ScriptHeader _currentHeader;
@@ -34,9 +34,12 @@ namespace ScriptNodePlugin
         private ScriptFileWatcher _watcher;
         private bool _isRebuildScheduled;
 
-        // ── Public getters for MCP tools ───────────────────────
-        public string ScriptPath => _scriptPath;
+        // ── Public getters for MCP tools + Attributes ─────────────
+        public string ScriptPath  => _scriptPath;
         public ScriptHeader CurrentHeader => _currentHeader;
+
+        /// <summary>True while a param rebuild is scheduled (shows amber dot on Load File row).</summary>
+        public bool IsReloading   => _isRebuildScheduled;
 
         // The permanent script_path input is always at index 0
         private const int SCRIPT_PATH_INDEX = 0;
@@ -73,7 +76,16 @@ namespace ScriptNodePlugin
         {
             // 1. Get script path
             string path = "";
+            
+            // If there's no wire, use the path we set via the button (if any).
+            // Usually DA.GetData handles this if PersistentData is set, but just to be safe:
+            bool hasWire = Params.Input[SCRIPT_PATH_INDEX].SourceCount > 0;
+            
             if (!DA.GetData(SCRIPT_PATH_INDEX, ref path)) return;
+
+            // If DA.GetData falls back to empty string but we have a valid _scriptPath
+            if (string.IsNullOrEmpty(path) && !hasWire && !string.IsNullOrEmpty(_scriptPath))
+                path = _scriptPath;
 
             // Normalise
             if (!string.IsNullOrWhiteSpace(path))
@@ -500,44 +512,60 @@ namespace ScriptNodePlugin
         public override Guid ComponentGuid =>
             new Guid("A1B2C3D4-E5F6-7890-ABCD-EF0123456789");
 
-        protected override Bitmap Icon => null; // v1: no custom icon
-
-        public override GH_Exposure Exposure => GH_Exposure.primary;
-    }
-
-    // ── Custom Attributes for MCP indicator ────────────────────
-    /// <summary>
-    /// Draws a small green/red dot in the top-right corner of the component
-    /// to indicate whether the MCP server is running.
-    /// </summary>
-    public class ScriptNodeAttributes : GH_ComponentAttributes
-    {
-        public ScriptNodeAttributes(ScriptNodeComponent owner) : base(owner) { }
-
-        protected override void Render(GH_Canvas canvas, Graphics graphics, GH_CanvasChannel channel)
+        protected override Bitmap Icon
         {
-            base.Render(canvas, graphics, channel);
-
-            if (channel == GH_CanvasChannel.Objects)
+            get
             {
-                bool mcpRunning = McpServer.Instance.IsRunning;
-                var color = mcpRunning ? Color.FromArgb(80, 200, 120) : Color.FromArgb(220, 60, 60);
-
-                // Draw dot in the top-right corner of the component bounds
-                float dotSize = 8f;
-                float padding = 4f;
-                var bounds = Bounds;
-                var dotX = bounds.Right - dotSize - padding;
-                var dotY = bounds.Top + padding;
-
-                using (var brush = new SolidBrush(color))
-                using (var pen = new Pen(Color.FromArgb(80, 0, 0, 0), 0.5f))
+                var bmp = new Bitmap(24, 24);
+                using (var g = Graphics.FromImage(bmp))
                 {
-                    graphics.SmoothingMode = SmoothingMode.AntiAlias;
-                    graphics.FillEllipse(brush, dotX, dotY, dotSize, dotSize);
-                    graphics.DrawEllipse(pen, dotX, dotY, dotSize, dotSize);
+                    g.SmoothingMode = SmoothingMode.AntiAlias;
+                    g.FillEllipse(Brushes.Black, 0, 0, 23, 23);
+                    var red = Color.FromArgb(204, 34, 34);
+                    var triangle = new PointF[] {
+                        new PointF(12f, 5.5f),
+                        new PointF(4.5f, 18f),
+                        new PointF(19.5f, 18f)
+                    };
+                    g.FillPolygon(new SolidBrush(red), triangle);
+                    g.FillEllipse(Brushes.White, 8f, 13.5f, 8f, 4.8f);
+                    g.FillEllipse(new SolidBrush(red), 10.2f, 14.6f, 3.6f, 2.6f);
                 }
+                return bmp;
             }
         }
+
+        public override GH_Exposure Exposure => GH_Exposure.primary;
+
+        // ── Load File (called by ScriptNodeAttributes on button click) ─
+        /// <summary>
+        /// Sets a new script path directly (e.g. from the Load File button).
+        /// Clears cached state so the next SolveInstance picks it up fresh.
+        /// </summary>
+        public void SetScriptPath(string newPath)
+        {
+            _scriptPath   = newPath;
+
+            // Ensure the input parameter contains the newly selected path
+            // otherwise SolveInstance's DA.GetData will return the old value (or fail).
+            if (Params.Input.Count > SCRIPT_PATH_INDEX)
+            {
+                var p = Params.Input[SCRIPT_PATH_INDEX];
+                p.ClearData(); // Clear volatile data so it reads PersistentData again on next solve
+                if (p is Grasshopper.Kernel.Parameters.Param_String pStr)
+                {
+                    pStr.PersistentData.Clear();
+                    pStr.PersistentData.Append(new Grasshopper.Kernel.Types.GH_String(newPath));
+                }
+            }
+
+            _lastFileWrite = DateTime.MinValue; // force re-read on next solve
+            _lastSource    = null;
+            _currentHeader = null;
+            SetupWatcher();
+            // Wire the script_path input param so it shows the path (cosmetic)
+            ExpireSolution(true);
+        }
+
     }
 }

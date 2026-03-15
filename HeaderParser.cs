@@ -67,7 +67,7 @@ namespace ScriptNodePlugin
     /// </summary>
     public static class HeaderParser
     {
-        private const int MAX_HEADER_LINES = 30;
+        private const int MAX_HEADER_LINES = 200;
 
         private static readonly Regex InputsRegex =
             new Regex(@"^#\s*NODE_INPUTS\s*:\s*(.+)$", RegexOptions.Compiled);
@@ -103,14 +103,14 @@ namespace ScriptNodePlugin
                     var im = InputsRegex.Match(line);
                     if (im.Success)
                     {
-                        inputs = ParseInputs(im.Groups[1].Value);
+                        inputs.AddRange(ParseInputs(im.Groups[1].Value));
                         continue;
                     }
 
                     var om = OutputsRegex.Match(line);
                     if (om.Success)
                     {
-                        outputs = ParseOutputs(om.Groups[1].Value);
+                        outputs.AddRange(ParseOutputs(om.Groups[1].Value));
                         continue;
                     }
                 }
@@ -146,14 +146,14 @@ namespace ScriptNodePlugin
                 var im = InputsRegex.Match(line);
                 if (im.Success)
                 {
-                    inputs = ParseInputs(im.Groups[1].Value);
+                    inputs.AddRange(ParseInputs(im.Groups[1].Value));
                     continue;
                 }
 
                 var om = OutputsRegex.Match(line);
                 if (om.Success)
                 {
-                    outputs = ParseOutputs(om.Groups[1].Value);
+                    outputs.AddRange(ParseOutputs(om.Groups[1].Value));
                     continue;
                 }
             }
