@@ -68,10 +68,12 @@ Dense aggregation of timber members. Not a conventional structural grid — memb
 The Grasshopper workflow chains multiple ScriptNode components to explore design. The typical pipeline:
 
 ```
-Voxel Grid (building volume) 
-  → Boid Simulation (path generation within volume)
-    → Component Placement (timber members along paths)
-      → Joint Resolution (connection geometry at intersections)
+DataNode (per-level parameters)
+  → Levels Script (floor geometry)
+    → Voxel Grid (building volume) 
+      → Boid Simulation (path generation within volume)
+        → Component Placement (timber members along paths)
+          → Joint Resolution (connection geometry at intersections)
 ```
 
 But the power of ScriptNode is that this order is not fixed. Alternative chains:
@@ -80,7 +82,10 @@ But the power of ScriptNode is that this order is not fixed. Alternative chains:
 Attractor Field → Voxel Activation → Direct Placement (no boids)
 Perlin Noise → Surface Modulation → Envelope Generation
 Boids → Path Curves → Ladybug Solar Analysis → Density Adjustment
+DataNode (room configs) → Room Subdivision → Interior Layout
 ```
+
+**DataNode** is the preferred way to supply per-item configuration (e.g. per-level heights, per-room areas) to ScriptNode scripts. It replaces the need for banks of individual sliders.
 
 The flexibility to reorder and remix these systems is the point of the GH workflow. Write scripts as modular, chainable units — not as monolithic pipelines.
 

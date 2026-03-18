@@ -164,7 +164,16 @@ namespace ScriptNodePlugin
                 {
                     var list = new List<object>();
                     DA.GetDataList(i, list);
-                    inputs[paramName] = list;
+                    // Unwrap GH_Goo wrappers so IronPython gets raw values
+                    var unwrapped = new List<object>();
+                    foreach (var item in list)
+                    {
+                        if (item is Grasshopper.Kernel.Types.IGH_Goo gooItem)
+                            unwrapped.Add(GooToObject(gooItem));
+                        else
+                            unwrapped.Add(item);
+                    }
+                    inputs[paramName] = unwrapped;
                 }
                 else
                 {

@@ -15,23 +15,26 @@ using Grasshopper.Kernel.Attributes;
 namespace ScriptNodePlugin
 {
     /// <summary>
-    /// Full custom card-style attributes for ScriptNode.
+    /// Full custom card-style attributes for DataNode.
+    /// Matches ScriptNode's visual language with a BLUE accent header.
     ///
     /// Layout (top → bottom):
-    ///   ┌─────────────────────────────┐  ← HEADER_H  (red, rounded top)
-    ///   │        Script Name          │
+    ///   ┌─────────────────────────────┐  ← HEADER_H  (blue, rounded top)
+    ///   │        DataNode             │
     ///   ├─────────────────────────────┤  ← ROW_H     (MCP status)
     ///   │  MCP Status            [●]  │
-    ///   ├─────────────────────────────┤  ← ROW_H     (load file)
-    ///   │  Load file             [●]  │
-    ///   ├──────────────┬──────────────┤  ← PARAM_H × n   (IO panel, optional)
-    ///   │ ● input 1    │  output 1 ●  │
-    ///   │ ● input 2    │  output 2 ●  │
+    ///   ├─────────────────────────────┤  ← ROW_H     (edit data)
+    ///   │  Edit Data             [●]  │
+    ///   ├─────────────────────────────┤  ← ROW_H     (summary)
+    ///   │  3 fields • 20 items        │
+    ///   ├──────────────┬──────────────┤  ← PARAM_H × n   (IO panel)
+    ///   │ ● input_ovr  │  output_1 ●  │
+    ///   │              │  output_2 ●  │
     ///   └──────────────┴──────────────┘
     /// </summary>
-    public class ScriptNodeAttributes : GH_ComponentAttributes
+    public class DataNodeAttributes : GH_ComponentAttributes
     {
-        // ── Layout constants ──────────────────────────────────
+        // ── Layout constants (same as ScriptNodeAttributes) ───
         private const float HEADER_H = 28f;
         private const float ROW_H    = 22f;
         private const float PARAM_H  = 20f;
@@ -41,7 +44,7 @@ namespace ScriptNodePlugin
         private const float PAD      = 10f;
 
         // ── Colours ───────────────────────────────────────────
-        private static readonly Color ColHeader     = Color.FromArgb(204, 34, 34);
+        private static readonly Color ColHeader     = Color.FromArgb(34, 102, 204);  // Blue accent
         private static readonly Color ColHeaderText = Color.White;
         private static readonly Color ColRow        = Color.FromArgb(58, 58, 58);
         private static readonly Color ColRowText    = Color.FromArgb(224, 224, 224);
@@ -52,20 +55,18 @@ namespace ScriptNodePlugin
         private static readonly Color ColDotAmber   = Color.FromArgb(224, 160, 32);
         private static readonly Color ColDotRed     = Color.FromArgb(220, 60, 60);
 
-        // ── Cached hit-test rects (in canvas-space) ───────────
-        private RectangleF _loadFileRect;
+        // ── Cached hit-test rects ─────────────────────────────
+        private RectangleF _editDataRect;
 
-        private ScriptNodeComponent Owner => (ScriptNodeComponent)base.Owner;
+        private new DataNodeComponent Owner => (DataNodeComponent)base.Owner;
 
-        public ScriptNodeAttributes(ScriptNodeComponent owner) : base(owner) { }
+        public DataNodeAttributes(DataNodeComponent owner) : base(owner) { }
 
         // ── Layout ────────────────────────────────────────────
         protected override void Layout()
         {
             var comp = Owner;
-
-            // Count real IO (skip script_path at index 0)
-            int inputCount  = Math.Max(0, comp.Params.Input.Count - 1);
+            int inputCount  = comp.Params.Input.Count;
             int outputCount = comp.Params.Output.Count;
             int rowCount    = Math.Max(inputCount, outputCount);
             bool hasIO      = rowCount > 0;
@@ -75,35 +76,34 @@ namespace ScriptNodePlugin
             using (var g = Graphics.FromHwnd(IntPtr.Zero))
             using (var nameFont = new Font("Segoe UI", 7.5f))
             {
-                foreach (var p in comp.Params.Input.Skip(1))
+                foreach (var p in comp.Params.Input)
                     w = Math.Max(w, g.MeasureString(p.Name, nameFont).Width * 2 + PAD * 4 + 20);
                 foreach (var p in comp.Params.Output)
                     w = Math.Max(w, g.MeasureString(p.Name, nameFont).Width * 2 + PAD * 4 + 20);
             }
             w = Math.Max(w, W_MIN);
 
-            // Total height
-            float h = HEADER_H + ROW_H + ROW_H + (hasIO ? rowCount * PARAM_H + 2 : 0);
+            // Total height: header + MCP row + Edit Data row + Summary row + IO
+            float h = HEADER_H + ROW_H + ROW_H + ROW_H + (hasIO ? rowCount * PARAM_H + 2 : 0);
 
             // Anchor to pivot
             float x = Pivot.X - w / 2f;
             float y = Pivot.Y - h / 2f;
             Bounds = new RectangleF(x, y, w, h);
 
-            // Cache load-file click rect
-            float loadY = y + HEADER_H + ROW_H;
-            _loadFileRect = new RectangleF(x, loadY, w, ROW_H);
+            // Cache Edit Data click rect
+            float editY = y + HEADER_H + ROW_H;
+            _editDataRect = new RectangleF(x, editY, w, ROW_H);
 
             // ── Lay out param attributes ──────────────────────
-            float ioTop = y + HEADER_H + ROW_H * 2;
+            float ioTop = y + HEADER_H + ROW_H * 3;
             float halfW = w / 2f;
 
             for (int i = 0; i < inputCount; i++)
             {
-                var p = comp.Params.Input[i + 1];
+                var p = comp.Params.Input[i];
                 if (p.Attributes == null) p.CreateAttributes();
                 float py = ioTop + i * PARAM_H;
-                // Grip = left edge of component, centred in row
                 p.Attributes.Bounds = new RectangleF(x, py, halfW, PARAM_H);
                 p.Attributes.Pivot  = new PointF(x + 4f, py + PARAM_H / 2f);
             }
@@ -148,48 +148,46 @@ namespace ScriptNodePlugin
             using (var pen = new Pen(ColOutline, 1.2f))
                 g.DrawPath(pen, outlinePath);
 
-            // ── 2. Header (red, rounded top) ───────────────────
+            // ── 2. Header (blue, rounded top) ──────────────────
             float headerH = HEADER_H;
-            var headerRect = new RectangleF(x, y, w, headerH + CORNER_R);
             using var headerPath = RoundedTop(new RectangleF(x, y, w, headerH), CORNER_R);
             using (var hBrush = new SolidBrush(ColHeader))
                 g.FillPath(hBrush, headerPath);
 
-            // Script name in header
-            string scriptName = string.IsNullOrEmpty(comp.ScriptPath)
-                ? "ScriptNode"
-                : Path.GetFileNameWithoutExtension(comp.ScriptPath);
+            // Title in header
+            // Title in header — use custom ListName if set
+            string title = string.IsNullOrWhiteSpace(Owner.Schema.ListName) ? "DataNode" : Owner.Schema.ListName;
             using var headerFont = new Font("Segoe UI", 9f, FontStyle.Bold);
             using var headerBrush = new SolidBrush(ColHeaderText);
             var headerTextRect = new RectangleF(x + PAD, y, w - PAD * 2, headerH);
             var headerFormat = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-            g.DrawString(scriptName, headerFont, headerBrush, headerTextRect, headerFormat);
+            g.DrawString(title, headerFont, headerBrush, headerTextRect, headerFormat);
 
             // ── 3. MCP Status row ──────────────────────────────
             float mcpY = y + headerH;
             DrawStatusRow(g, x, mcpY, w, "MCP Status",
                 McpServer.Instance.IsRunning ? ColDotGreen : ColDotRed);
 
-            // ── 4. Load File row ───────────────────────────────
-            float loadY = mcpY + ROW_H;
-            Color loadDot;
-            if (string.IsNullOrEmpty(comp.ScriptPath) || !File.Exists(comp.ScriptPath))
-                loadDot = ColDotRed;
-            else if (comp.IsReloading)
-                loadDot = ColDotAmber;
-            else
-                loadDot = ColDotGreen;
-            DrawStatusRow(g, x, loadY, w, "Load file", loadDot);
+            // ── 4. Edit Data row ───────────────────────────────
+            float editY = mcpY + ROW_H;
+            Color editDot = comp.Schema.Fields.Count > 0 ? ColDotGreen : ColDotAmber;
+            if (comp.IsReloading) editDot = ColDotAmber;
+            DrawStatusRow(g, x, editY, w, "Edit Data", editDot);
 
-            // ── 5. IO panel ────────────────────────────────────
-            int inputCount  = Math.Max(0, comp.Params.Input.Count - 1);
+            // ── 5. Summary row ─────────────────────────────────
+            float summaryY = editY + ROW_H;
+            string summary = $"{comp.Schema.Fields.Count} fields • {comp.Schema.Items.Count} items";
+            DrawSummaryRow(g, x, summaryY, w, summary);
+
+            // ── 6. IO panel ────────────────────────────────────
+            int inputCount  = comp.Params.Input.Count;
             int outputCount = comp.Params.Output.Count;
             int rowCount    = Math.Max(inputCount, outputCount);
             bool hasIO      = rowCount > 0;
 
             if (hasIO)
             {
-                float ioTop  = loadY + ROW_H;
+                float ioTop  = summaryY + ROW_H;
                 float halfW  = w / 2f;
                 float ioH    = rowCount * PARAM_H;
 
@@ -224,10 +222,8 @@ namespace ScriptNodePlugin
                     // Input grip + label
                     if (i < inputCount)
                     {
-                        var p = comp.Params.Input[i + 1];
-                        // Wire grip dot (left edge)
+                        var p = comp.Params.Input[i];
                         DrawGrip(g, x, rowCY, isInput: true);
-                        // Label
                         var labelRect = new RectangleF(x + 13f, rowY, halfW - 16f, PARAM_H);
                         g.DrawString(p.Name, paramFont, paramBrush, labelRect, leftFmt);
                     }
@@ -236,16 +232,14 @@ namespace ScriptNodePlugin
                     if (i < outputCount)
                     {
                         var p = comp.Params.Output[i];
-                        // Wire grip dot (right edge)
                         DrawGrip(g, x + w, rowCY, isInput: false);
-                        // Label
                         var labelRect = new RectangleF(x + halfW + 2f, rowY, halfW - 14f, PARAM_H);
                         g.DrawString(p.Name, paramFont, paramBrush, labelRect, rightFmt);
                     }
                 }
             }
 
-            // ── 6. Selection / error highlight ─────────────────
+            // ── 7. Selection / error highlight ─────────────────
             if (comp.Attributes.Selected)
             {
                 using var selPen = new Pen(Color.FromArgb(220, 180, 80, 255), 2f);
@@ -269,27 +263,13 @@ namespace ScriptNodePlugin
             g.SmoothingMode = SmoothingMode.Default;
         }
 
-        // ── Hit-test: Load File button click ──────────────────
+        // ── Hit-test: Edit Data button click ──────────────────
         public override GH_ObjectResponse RespondToMouseDown(GH_Canvas sender, GH_CanvasMouseEvent e)
         {
-            if (e.Button == System.Windows.Forms.MouseButtons.Left
-                && _loadFileRect.Contains(e.CanvasLocation))
+            if (e.Button == MouseButtons.Left
+                && _editDataRect.Contains(e.CanvasLocation))
             {
-                // Use Eto.Forms for cross-platform file dialog (works on macOS + Windows)
-                var dlg = new Eto.Forms.OpenFileDialog
-                {
-                    Title = "Select Python Script",
-                };
-                dlg.Filters.Add(new Eto.Forms.FileFilter("Python files", ".py"));
-                dlg.Filters.Add(new Eto.Forms.FileFilter("All files", ".*"));
-
-                if (!string.IsNullOrEmpty(Owner.ScriptPath))
-                    dlg.Directory = new Uri(Path.GetDirectoryName(Owner.ScriptPath));
-
-                if (dlg.ShowDialog(Rhino.UI.RhinoEtoApp.MainWindow) == Eto.Forms.DialogResult.Ok)
-                {
-                    Owner.SetScriptPath(dlg.FileName);
-                }
+                DataNodeEditor.ShowEditor(Owner);
                 return GH_ObjectResponse.Handled;
             }
             return base.RespondToMouseDown(sender, e);
@@ -298,12 +278,9 @@ namespace ScriptNodePlugin
         // ── Helpers ───────────────────────────────────────────
         private static void DrawStatusRow(Graphics g, float x, float y, float w, string label, Color dotColor)
         {
-            // Row bg (already painted by full outline background — just draw the label)
-            // Subtle top border line
             using var sepPen = new Pen(Color.FromArgb(40, 255, 255, 255), 0.75f);
             g.DrawLine(sepPen, x + 4, y, x + w - 4, y);
 
-            // Label
             using var font  = new Font("Segoe UI", 7.5f);
             using var brush = new SolidBrush(Color.FromArgb(200, 200, 200));
             var textRect = new RectangleF(x + PAD, y, w - PAD * 2 - DOT_R * 2 - 8, ROW_H);
@@ -317,14 +294,26 @@ namespace ScriptNodePlugin
             using var dotPen   = new Pen(Color.FromArgb(60, 0, 0, 0), 0.75f);
             g.FillEllipse(dotBrush, dotX, dotY, DOT_R * 2, DOT_R * 2);
             g.DrawEllipse(dotPen,   dotX, dotY, DOT_R * 2, DOT_R * 2);
-            // Specular highlight on dot
+            // Specular highlight
             using var hiLight = new SolidBrush(Color.FromArgb(80, 255, 255, 255));
             g.FillEllipse(hiLight, dotX + DOT_R * 0.2f, dotY + DOT_R * 0.15f, DOT_R * 0.6f, DOT_R * 0.5f);
         }
 
+        private static void DrawSummaryRow(Graphics g, float x, float y, float w, string label)
+        {
+            using var sepPen = new Pen(Color.FromArgb(40, 255, 255, 255), 0.75f);
+            g.DrawLine(sepPen, x + 4, y, x + w - 4, y);
+
+            using var font  = new Font("Segoe UI", 7f, FontStyle.Italic);
+            using var brush = new SolidBrush(Color.FromArgb(160, 160, 160));
+            var textRect = new RectangleF(x + PAD, y, w - PAD * 2, ROW_H);
+            var fmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+            g.DrawString(label, font, brush, textRect, fmt);
+        }
+
         private static void DrawGrip(Graphics g, float edgeX, float cy, bool isInput)
         {
-            const float gr = 4.5f; // grip radius
+            const float gr = 4.5f;
             float gx = isInput ? edgeX - gr : edgeX - gr;
             float gy = cy - gr;
 
@@ -334,7 +323,7 @@ namespace ScriptNodePlugin
             g.DrawEllipse(gripPen,   gx, gy, gr * 2, gr * 2);
         }
 
-        // ── Path builders ─────────────────────────────────────
+        // ── Path builders (same as ScriptNodeAttributes) ──────
         private static GraphicsPath RoundedRect(RectangleF r, float radius)
         {
             float d = radius * 2;
@@ -351,9 +340,9 @@ namespace ScriptNodePlugin
         {
             float d = radius * 2;
             var path = new GraphicsPath();
-            path.AddArc(r.X,         r.Y, d, d, 180, 90);       // top-left
-            path.AddArc(r.Right - d, r.Y, d, d, 270, 90);       // top-right
-            path.AddLine(r.Right, r.Bottom, r.X, r.Bottom);      // bottom straight
+            path.AddArc(r.X,         r.Y, d, d, 180, 90);
+            path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+            path.AddLine(r.Right, r.Bottom, r.X, r.Bottom);
             path.CloseFigure();
             return path;
         }
@@ -362,9 +351,9 @@ namespace ScriptNodePlugin
         {
             float d = radius * 2;
             var path = new GraphicsPath();
-            path.AddLine(r.X, r.Y, r.Right, r.Y);                // top straight
-            path.AddArc(r.Right - d, r.Bottom - d, d, d,   0, 90); // bottom-right
-            path.AddArc(r.X,         r.Bottom - d, d, d,  90, 90); // bottom-left
+            path.AddLine(r.X, r.Y, r.Right, r.Y);
+            path.AddArc(r.Right - d, r.Bottom - d, d, d,   0, 90);
+            path.AddArc(r.X,         r.Bottom - d, d, d,  90, 90);
             path.CloseFigure();
             return path;
         }

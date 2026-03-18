@@ -190,6 +190,21 @@ If they don't match, your build isn't deployed. This applies to plugin developer
 | No error but no output | Output variable name doesn't match header | Check spelling: `# NODE_OUTPUTS: result` needs `result = ...` in script |
 | Node is orange with no message | Header parse warning | Check header syntax — see HEADER_PROTOCOL.md |
 
+## DataNode-Specific Gotchas
+
+### Editor freezes on open (with many items)
+The DataNode editor creates Eto.Forms controls for each item. With 14+ items × 3+ fields, that's 200+ controls — which can freeze the UI for up to a minute. The current implementation uses a `GridView` (single control, virtualized rows) to avoid this. If you ever revert to per-item sliders, you MUST wrap `RebuildContent()` in an `_isBuilding` flag to suppress `RequestRecompute()` during construction.
+
+### Never call `ExpireSolution(true)` from the editor
+`ExpireSolution(true)` forces an immediate synchronous recompute on the current thread. If called from an Eto event handler, it deadlocks the UI. Always use `ScheduleSolution(10, ...)` instead — it defers the recompute to the next GH solver tick.
+
+### DataNode outputs raw values, not GH_Goo
+DataNode outputs plain `double`/`string` values. Grasshopper wraps these as `GH_Number`/`GH_String` on the wire. ScriptNode's list input handler unwraps `GH_Goo` objects automatically (added in this session), so downstream scripts receive plain Python types.
+
+### The `.gha` deployment gotcha applies to DataNode too
+See the "Plugin Deployment Gotcha" section above. If Rhino is running, the build copy may fail silently, and you'll test an old DataNode with old bugs.
+
 ---
 
 *End of GOTCHAS.md.*
+

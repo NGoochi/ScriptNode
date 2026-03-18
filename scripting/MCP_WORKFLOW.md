@@ -9,7 +9,7 @@
 - **Transport:** Streamable HTTP
 - **Auto-start:** The server boots when the first ScriptNode component is placed on the GH canvas. A green dot on the component confirms it's running.
 - **Shared:** All ScriptNode components on the canvas share one server instance.
-- **Tools:** 9 total, across 3 categories
+- **Tools:** 13 total, across 4 categories
 
 ---
 
@@ -305,6 +305,115 @@
   "success": true,
   "commandRun": true
 }
+```
+
+---
+
+### Category 4: DataNode Management
+
+> See `DATANODE.md` for full DataNode concepts, naming conventions, and workflows.
+
+#### `get_datanode_info`
+**Purpose:** Get complete state of a DataNode — schema fields (names, types, ranges), all items with their values, and active wire overrides.
+
+**Parameters:**
+- `component_id` (string, optional) — GUID of a specific DataNode. Omit to get info for ALL registered DataNodes.
+
+**When to use:**
+- To see the current schema (fields) and data (items/values)
+- To check which overrides are enabled
+- To verify values after setting them via `set_datanode_values`
+
+**Returns:**
+```json
+{
+  "success": true,
+  "node": {
+    "guid": "08219622-...",
+    "name": "DataNode",
+    "field_count": 3,
+    "item_count": 14,
+    "fields": [
+      { "name": "level_heights", "type": "float", "min": 3000.0, "max": 6000.0, "decimals": 0, "is_parent": false }
+    ],
+    "items": [
+      { "index": 0, "name": "Level 1", "values": { "level_heights": 5500.0 } }
+    ],
+    "overrides": []
+  }
+}
+```
+
+---
+
+#### `set_datanode_values`
+**Purpose:** Set the value for a specific item and field. Triggers a downstream recompute.
+
+**Parameters:**
+- `component_id` (string, required) — DataNode GUID
+- `item` (string, required) — Item identifier: 0-based index as string (e.g. `"0"`) or item name (e.g. `"Level 1"`)
+- `field` (string, required) — Field name (e.g. `"level_heights"`)
+- `value` (string, required) — Value to set (as string, e.g. `"5500"`)
+
+**When to use:**
+- To set or update individual item values from the agent
+- In a loop to configure all items programmatically
+- To adjust design parameters without the visual editor
+
+**Returns:**
+```json
+{ "success": true, "item": "Level 1", "field": "level_heights", "value": 5500.0 }
+```
+
+**Notes:**
+- Values are clamped to the field's `[min, max]` range and rounded to `decimals` precision
+- Each call triggers a GH solution recompute — batch calls are fine (GH coalesces rapid recomputes)
+
+---
+
+#### `add_datanode_items`
+**Purpose:** Batch-create new items. Each item starts with default values (midpoint of each field's range).
+
+**Parameters:**
+- `component_id` (string, required) — DataNode GUID
+- `count` (string, required) — Number of items to create (as string)
+- `name_prefix` (string, optional) — Prefix for auto-naming (e.g. `"Level"` → `Level 1`, `Level 2`, ...)
+
+**When to use:**
+- When setting up a new DataNode from scratch
+- To add more items to an existing DataNode
+
+**Returns:**
+```json
+{ "success": true, "added": 14, "total_items": 14 }
+```
+
+---
+
+#### `set_datanode_schema`
+**Purpose:** Add, remove, or modify fields in the DataNode's schema.
+
+**Parameters:**
+- `component_id` (string, required) — DataNode GUID
+- `action` (string, required) — `"add"`, `"remove"`, or `"modify"`
+- `field_name` (string, required) — Name of the field
+- `type` (string, required for `add`) — Type hint: `"float"`, `"int"`, `"str"`, `"bool"`, `"Point3d"`, etc.
+- `min` (string, optional) — Minimum value for sliders
+- `max` (string, optional) — Maximum value for sliders
+- `decimals` (string, optional) — Decimal places (0–5)
+- `is_parent` (string, optional) — `"true"` or `"false"` — if true, wire override replaces ALL items
+
+**When to use:**
+- To define the schema programmatically when creating a DataNode
+- To add/remove fields during iteration
+- To adjust ranges or decimal precision
+
+**Example sequence:**
+```
+set_datanode_schema(action="add", field_name="level_heights", type="float", min="3000", max="6000", decimals="0")
+set_datanode_schema(action="add", field_name="z_offset", type="float", min="0", max="1000", decimals="0")
+add_datanode_items(count="14", name_prefix="Level")
+set_datanode_values(item="0", field="level_heights", value="5500")  // repeat for each item
 ```
 
 ---

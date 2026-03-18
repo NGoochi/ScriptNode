@@ -64,6 +64,22 @@ namespace ScriptNodePlugin
             _nodes.TryRemove(node.InstanceGuid, out _);
         }
 
+        // ── Registered DataNode instances ──────────────────────────
+        private readonly ConcurrentDictionary<Guid, DataNodeComponent> _dataNodes =
+            new ConcurrentDictionary<Guid, DataNodeComponent>();
+
+        public IReadOnlyDictionary<Guid, DataNodeComponent> RegisteredDataNodes => _dataNodes;
+
+        public void RegisterDataNode(DataNodeComponent node)
+        {
+            _dataNodes[node.InstanceGuid] = node;
+        }
+
+        public void UnregisterDataNode(DataNodeComponent node)
+        {
+            _dataNodes.TryRemove(node.InstanceGuid, out _);
+        }
+
         // ── Lifecycle ────────────────────────────────────────────────
         public void Start(int port = DEFAULT_PORT)
         {
@@ -217,7 +233,8 @@ namespace ScriptNodePlugin
                         server = "ScriptNode MCP",
                         port = _port,
                         toolCount = _tools.Count,
-                        activeScriptNodes = _nodes.Count
+                        activeScriptNodes = _nodes.Count,
+                        activeDataNodes = _dataNodes.Count
                     }, origin);
                     return;
                 }
@@ -300,7 +317,7 @@ namespace ScriptNodePlugin
                         protocolVersion = "2025-06-18",
                         capabilities = new { tools = new { } },
                         serverInfo = new { name = "ScriptNode MCP", version = "0.1.0" },
-                        instructions = "ScriptNode MCP: Control Grasshopper ScriptNode components.\n\nTools:\n- get_canvas_info: list all components, connections, and status\n- get_scriptnode_info: deep-dive into a ScriptNode (header, params, errors)\n- get_script_source: read the Python script file\n- write_script_source: write code to the Python script (triggers auto-reload)\n- get_error_log: read the gh_errors.log file\n- get_component_outputs: read output values from any component"
+                        instructions = "ScriptNode MCP: Control Grasshopper ScriptNode and DataNode components.\n\nTools:\n- get_canvas_info: list all components, connections, and status\n- get_scriptnode_info: deep-dive into a ScriptNode (header, params, errors)\n- get_script_source: read the Python script file\n- write_script_source: write code to the Python script (triggers auto-reload)\n- get_error_log: read the gh_errors.log file\n- get_component_outputs: read output values from any component\n- get_datanode_info: get DataNode schema, items, and values\n- set_datanode_values: set values in DataNode items\n- add_datanode_items: create new items in a DataNode\n- set_datanode_schema: add/remove/modify DataNode fields"
                     };
 
                 case "initialized":

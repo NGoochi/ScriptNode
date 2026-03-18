@@ -12,7 +12,7 @@ namespace ScriptNodePlugin
         public override Bitmap Icon => null;
 
         public override string Description =>
-            "Auto-updating external Python scripts with dynamic parameters for Grasshopper.";
+            "Auto-updating external Python scripts (ScriptNode) and schema-driven data editing (DataNode) for Grasshopper.";
 
         public override Guid Id => new Guid("E3A7F1B2-4C8D-4E6F-A1B3-9D2E5F7A8C01");
 
