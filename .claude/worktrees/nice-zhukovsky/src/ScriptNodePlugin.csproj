@@ -12,8 +12,8 @@
 
   <PropertyGroup>
     <Version>0.1.0</Version>
-    <Title>Alien (ScriptNodePlugin)</Title>
-    <Description>Grasshopper Alien — external Python scripts, manual values, browser editor, MCP</Description>
+    <Title>ScriptNodePlugin</Title>
+    <Description>Grasshopper ScriptNode — auto-updating external Python scripts with dynamic parameters</Description>
   </PropertyGroup>
 
   <ItemGroup>

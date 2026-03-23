@@ -58,9 +58,9 @@ namespace ScriptNodePlugin
         // ── Cached hit-test rects ─────────────────────────────
         private RectangleF _editDataRect;
 
-        private new LegacyDataNode Owner => (LegacyDataNode)base.Owner;
+        private new DataNodeComponent Owner => (DataNodeComponent)base.Owner;
 
-        public DataNodeAttributes(LegacyDataNode owner) : base(owner) { }
+        public DataNodeAttributes(DataNodeComponent owner) : base(owner) { }
 
         // ── Layout ────────────────────────────────────────────
         protected override void Layout()

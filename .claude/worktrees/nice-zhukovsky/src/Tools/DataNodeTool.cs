@@ -221,7 +221,7 @@ namespace ScriptNodePlugin.Tools
         }
 
         // ── Helpers ──────────────────────────────────────────
-        private static object BuildNodeInfo(LegacyDataNode node)
+        private static object BuildNodeInfo(DataNodeComponent node)
         {
             var schema = node.Schema;
             return new

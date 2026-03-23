@@ -41,14 +41,14 @@ namespace ScriptNodePlugin
             = new Dictionary<Guid, DataNodeEditor>();
 
         // ── Instance state ────────────────────────────────────
-        private readonly LegacyDataNode _component;
+        private readonly DataNodeComponent _component;
         private DataNodeSchema _schema;
         private readonly Panel _contentPanel;
         private string _filterText = "";
         private bool _isBuilding = false;  // Suppresses recompute during UI construction
 
         // ── Constructor ───────────────────────────────────────
-        private DataNodeEditor(LegacyDataNode component)
+        private DataNodeEditor(DataNodeComponent component)
         {
             _component = component;
             _schema = component.Schema;
@@ -73,7 +73,7 @@ namespace ScriptNodePlugin
         }
 
         /// <summary>Show or focus the editor for a DataNode component.</summary>
-        public static void ShowEditor(LegacyDataNode component)
+        public static void ShowEditor(DataNodeComponent component)
         {
             if (_openEditors.TryGetValue(component.InstanceGuid, out var existing))
             {

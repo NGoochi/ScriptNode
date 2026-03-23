@@ -1,0 +1,22 @@
+# ── Build output ──────────────────────────────
+src/[Bb]in/
+src/[Oo]bj/
+
+# ── Log files ─────────────────────────────────
+gh_errors.log
+
+# ── IDE / user-specific ──────────────────────
+*.user
+*.suo
+*.ide
+*.vs/
+.vscode/
+
+# ── Excluded from repo ───────────────────────
+_archive/
+for testing/
+scripting/examples/
+
+# ── Build artifacts ──────────────────────────
+src/build.log
+src/msbuild.log

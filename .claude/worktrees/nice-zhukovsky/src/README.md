@@ -1,15 +1,15 @@
-# Alien (Grasshopper Python + external editor)
+# ScriptNode (Grasshopper Python Dynamic Node)
 
-A Grasshopper plugin for Rhino 8 that runs **external Python 3** scripts with **dynamic pins**, **manual values** (when unwired), a **browser-based editor** (localhost + WebSocket), and an embedded **MCP** server for agents.
+A Grasshopper plugin for Rhino 8 that automatically syncs and rebuilds its parameters from an external Python script. 
+
+Write complex Python logic in your preferred external IDE (like VS Code, Cursor, or PyCharm) with full LLM assistance. The moment you save, the component in Grasshopper updates its inputs, outputs, and geometry—without losing any connected wires.
 
 ## Features
 
 - **Live Reload**: Watches your `.py` files and re-executes automatically when you save.
-- **Dynamic Parameters**: `NODE_INPUTS` / `NODE_OUTPUTS` headers; optional `|` metadata for UI hints.
-- **Manual data**: Unwired inputs can be filled in the browser (or via MCP); wires override.
-- **Wire Preservation**: Same Hops-style rebuild as before — names preserve wires.
-- **MCP + REST**: `http://127.0.0.1:9876/mcp`, plus `GET /api/node/{guid}/state` and `POST /api/node/{guid}/values`.
-- **Logging**: `gh_errors.log` next to your script on failure.
+- **Dynamic Parameters**: Reads simple header comments in your code to automatically build Grasshopper inputs and outputs of the correct types.
+- **Wire Preservation**: When your script updates, only new/changed parameters are altered; existing wires stay connected.
+- **Integrated Logging**: Errors are displayed natively on the Grasshopper node and logged to a `gh_errors.log` file next to your script for easy debugging or AI context.
 
 ## Installation Process
 

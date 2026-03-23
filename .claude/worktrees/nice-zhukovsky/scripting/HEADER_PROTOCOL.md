@@ -5,7 +5,7 @@
 
 ## The Header Block
 
-Every Alien (ScriptNode) Python file must start with a header block near the top of the file. The parser scans the first **200 lines** for `NODE_INPUTS` / `NODE_OUTPUTS` (legacy docs often said 10 lines — the implementation allows a longer preamble).
+Every ScriptNode Python file must start with a header block in the first 10 lines. The parser reads from the top of the file and stops searching after line 10.
 
 ```python
 #! python 3
@@ -75,34 +75,15 @@ See `TYPE_LEXICON.md` for the full mapping including RhinoCommon namespaces and 
 
 ---
 
-## Parameter metadata (`|` suffix) — Alien browser UI
-
-Optional **per-parameter** descriptions and slider hints for the Alien browser editor. Append `|` after the type, then a quoted description string. Structured keys `min=`, `max=`, `step=` may follow the closing quote (hybrid parsing also tries to read `Range: a – b` from the description text).
-
-```python
-# NODE_INPUTS: width:float | "Panel width (model units)" min=0.5 max=12.0 step=0.1
-# NODE_OUTPUTS: mesh:geometry | "Resulting mesh for fabrication"
-```
-
-- Metadata is **optional** — scripts without `|` behave as before.
-- **Do not** add a separate metadata block; everything stays on the same line as the parameter.
-- Commas inside double-quoted descriptions are supported; use commas **between** parameters only outside quotes.
-
----
-
 ## Output Names
 
-Outputs are usually plain names. You may add `:type` and the same `|` metadata pattern for documentation and typed GH outputs:
-
-```python
-# NODE_OUTPUTS: result:geometry, log:str
-```
+Outputs are declared as plain names with no type hint:
 
 ```
 # NODE_OUTPUTS: result, log, count
 ```
 
-After your script executes, Alien collects variables matching these names from the script's namespace. Whatever Python object is in that variable gets pushed to the corresponding output parameter.
+After your script executes, ScriptNode collects variables matching these names from the script's namespace. Whatever Python object is in that variable gets pushed to the corresponding output parameter.
 
 ### What you can output
 

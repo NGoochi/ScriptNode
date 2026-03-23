@@ -54,7 +54,7 @@ namespace ScriptNodePlugin.Tools
                         info["category"] = comp.Category;
                         info["subcategory"] = comp.SubCategory;
                         info["runtimeMessageLevel"] = comp.RuntimeMessageLevel.ToString();
-                        info["isAlienNode"] = comp is AlienNodeComponent;
+                        info["isScriptNode"] = comp is ScriptNodeComponent;
 
                         // Inputs with their sources
                         var inputs = new List<object>();

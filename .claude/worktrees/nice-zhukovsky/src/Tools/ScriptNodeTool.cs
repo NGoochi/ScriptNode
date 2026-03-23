@@ -39,12 +39,12 @@ namespace ScriptNodePlugin.Tools
                     if (!_server.RegisteredNodes.TryGetValue(guid, out var node))
                         return JsonConvert.SerializeObject(new { success = false, error = $"ScriptNode not found: {component_id}" });
 
-                    return JsonConvert.SerializeObject(new { success = true, node = BuildAlienNodeInfo(node) }, Formatting.Indented);
+                    return JsonConvert.SerializeObject(new { success = true, node = BuildNodeInfo(node) }, Formatting.Indented);
                 }
 
                 // All nodes
                 var nodes = _server.RegisteredNodes.Values
-                    .Select(n => BuildAlienNodeInfo(n))
+                    .Select(n => BuildNodeInfo(n))
                     .ToList();
 
                 return JsonConvert.SerializeObject(new
@@ -158,7 +158,7 @@ namespace ScriptNodePlugin.Tools
         }
 
         // ── Helper ───────────────────────────────────────────────────
-        private object BuildAlienNodeInfo(AlienNodeComponent node)
+        private object BuildNodeInfo(ScriptNodeComponent node)
         {
             var runtimeMessages = new List<object>();
             foreach (var msg in node.RuntimeMessages(GH_RuntimeMessageLevel.Error))
@@ -214,10 +214,8 @@ namespace ScriptNodePlugin.Tools
                 name = node.NickName,
                 scriptPath = node.ScriptPath ?? "(none)",
                 hasFileWatcher = !string.IsNullOrEmpty(node.ScriptPath),
-                headerInputs = (object)header?.Inputs?.Select(inp => new { inp.Name, inp.TypeHint, inp.IsList, meta = inp.Meta.Description }).ToList() ?? new List<object>(),
-                headerOutputs = (object)header?.Outputs?.Select(o => new { o.Name, o.TypeHint, meta = o.Meta.Description }).ToList() ?? new List<object>(),
-                liveMode = node.LiveMode,
-                pendingChanges = node.HasPendingChanges,
+                headerInputs = (object)header?.Inputs?.Select(inp => new { inp.Name, inp.TypeHint, inp.IsList }).ToList() ?? new List<object>(),
+                headerOutputs = (object)header?.Outputs?.ToList() ?? new List<object>(),
                 runtimeMessageLevel = node.RuntimeMessageLevel.ToString(),
                 runtimeMessages,
                 inputs,

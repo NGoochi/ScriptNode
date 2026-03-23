@@ -6,14 +6,11 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Reflection;
-using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using Rhino;
 
 namespace ScriptNodePlugin
@@ -28,7 +25,7 @@ namespace ScriptNodePlugin
     // ── MCP Server ───────────────────────────────────────────────────
     /// <summary>
     /// Singleton MCP server using HttpListener with Streamable HTTP transport.
-    /// Auto-starts when the first Alien node is placed on the canvas.
+    /// Auto-starts when the first ScriptNodeComponent is placed on the canvas.
     /// </summary>
     public class McpServer : IDisposable
     {
@@ -51,56 +48,36 @@ namespace ScriptNodePlugin
         public bool IsRunning { get; private set; }
         public int Port => _port;
 
-        // ── Registered Alien nodes ─────────────────────────────────────
-        private readonly ConcurrentDictionary<Guid, AlienNodeComponent> _alienNodes =
-            new ConcurrentDictionary<Guid, AlienNodeComponent>();
+        // ── Registered ScriptNode instances ───────────────────────────
+        private readonly ConcurrentDictionary<Guid, ScriptNodeComponent> _nodes =
+            new ConcurrentDictionary<Guid, ScriptNodeComponent>();
 
-        public IReadOnlyDictionary<Guid, AlienNodeComponent> RegisteredAlienNodes => _alienNodes;
+        public IReadOnlyDictionary<Guid, ScriptNodeComponent> RegisteredNodes => _nodes;
 
-        public void RegisterAlienNode(AlienNodeComponent node)
+        public void RegisterNode(ScriptNodeComponent node)
         {
-            _alienNodes[node.InstanceGuid] = node;
+            _nodes[node.InstanceGuid] = node;
         }
 
-        public void UnregisterAlienNode(AlienNodeComponent node)
+        public void UnregisterNode(ScriptNodeComponent node)
         {
-            _alienNodes.TryRemove(node.InstanceGuid, out _);
+            _nodes.TryRemove(node.InstanceGuid, out _);
         }
 
-        /// <summary>MCP tools still refer to "registered script nodes" — same as Alien.</summary>
-        public IReadOnlyDictionary<Guid, AlienNodeComponent> RegisteredNodes => _alienNodes;
+        // ── Registered DataNode instances ──────────────────────────
+        private readonly ConcurrentDictionary<Guid, DataNodeComponent> _dataNodes =
+            new ConcurrentDictionary<Guid, DataNodeComponent>();
 
-        public void RegisterNode(AlienNodeComponent node) => RegisterAlienNode(node);
+        public IReadOnlyDictionary<Guid, DataNodeComponent> RegisteredDataNodes => _dataNodes;
 
-        public void UnregisterNode(AlienNodeComponent node) => UnregisterAlienNode(node);
-
-        // ── Registered legacy DataNode instances ─────────────────────────
-        private readonly ConcurrentDictionary<Guid, LegacyDataNode> _dataNodes =
-            new ConcurrentDictionary<Guid, LegacyDataNode>();
-
-        public IReadOnlyDictionary<Guid, LegacyDataNode> RegisteredDataNodes => _dataNodes;
-
-        public void RegisterDataNode(LegacyDataNode node)
+        public void RegisterDataNode(DataNodeComponent node)
         {
             _dataNodes[node.InstanceGuid] = node;
         }
 
-        public void UnregisterDataNode(LegacyDataNode node)
+        public void UnregisterDataNode(DataNodeComponent node)
         {
             _dataNodes.TryRemove(node.InstanceGuid, out _);
-        }
-
-        private readonly AlienNodeWebSocketHub _wsHub = new AlienNodeWebSocketHub();
-
-        public void BroadcastAlienNodeState(AlienNodeComponent node)
-        {
-            if (node == null) return;
-            try
-            {
-                var json = node.BuildNodeStateJson().ToString(Formatting.None);
-                _wsHub.BroadcastText(node.InstanceGuid, json);
-            }
-            catch { }
         }
 
         // ── Lifecycle ────────────────────────────────────────────────
@@ -124,7 +101,7 @@ namespace ScriptNodePlugin
                 _listenerTask = Task.Run(() => ListenLoopAsync(_cts.Token), _cts.Token);
 
                 IsRunning = true;
-                RhinoApp.WriteLine($"[Alien MCP] Server started on http://127.0.0.1:{_port}/mcp  ({_tools.Count} tools)");
+                RhinoApp.WriteLine($"[ScriptNode MCP] Server started on http://127.0.0.1:{_port}/mcp  ({_tools.Count} tools)");
             }
             catch (Exception ex)
             {
@@ -156,7 +133,7 @@ namespace ScriptNodePlugin
                 _listenerTask = null;
                 _context = null;
                 IsRunning = false;
-                RhinoApp.WriteLine("[Alien MCP] Server stopped");
+                RhinoApp.WriteLine("[ScriptNode MCP] Server stopped");
             }
         }
 
@@ -235,7 +212,7 @@ namespace ScriptNodePlugin
                 if (req.HttpMethod == "OPTIONS")
                 {
                     resp.Headers.Add("Access-Control-Allow-Origin", origin ?? "*");
-                    resp.Headers.Add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+                    resp.Headers.Add("Access-Control-Allow-Methods", "POST, OPTIONS");
                     resp.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Accept");
                     resp.StatusCode = 204;
                     resp.Close();
@@ -253,82 +230,12 @@ namespace ScriptNodePlugin
                     await WriteJsonResponse(resp, 200, new
                     {
                         status = "ok",
-                        server = "Alien MCP",
+                        server = "ScriptNode MCP",
                         port = _port,
                         toolCount = _tools.Count,
-                        activeAlienNodes = _alienNodes.Count,
+                        activeScriptNodes = _nodes.Count,
                         activeDataNodes = _dataNodes.Count
                     }, origin);
-                    return;
-                }
-
-                // WebSocket upgrade for Alien editor
-                if (req.HttpMethod == "GET"
-                    && path.StartsWith("/ws/node/", StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(req.Headers["Upgrade"], "websocket", StringComparison.OrdinalIgnoreCase))
-                {
-                    _ = Task.Run(() => HandleAlienWebSocketAsync(ctx, ct), ct);
-                    return;
-                }
-
-                // Browser editor HTML
-                if (req.HttpMethod == "GET" && path.StartsWith("/editor/node/", StringComparison.OrdinalIgnoreCase))
-                {
-                    var seg = path.Substring("/editor/node/".Length).Trim('/');
-                    if (Guid.TryParse(seg, out var eguid))
-                    {
-                        var html = EditorHtml.GetPage(_port, eguid);
-                        resp.Headers.Add("Access-Control-Allow-Origin", origin ?? "*");
-                        resp.ContentType = "text/html; charset=utf-8";
-                        resp.StatusCode = 200;
-                        var bytes = Encoding.UTF8.GetBytes(html);
-                        await resp.OutputStream.WriteAsync(bytes, 0, bytes.Length);
-                        resp.Close();
-                        return;
-                    }
-                }
-
-                // REST: GET state
-                if (req.HttpMethod == "GET" && path.StartsWith("/api/node/", StringComparison.OrdinalIgnoreCase) && path.EndsWith("/state", StringComparison.OrdinalIgnoreCase))
-                {
-                    var seg = path.Substring("/api/node/".Length);
-                    seg = seg.Substring(0, seg.Length - "/state".Length).Trim('/');
-                    if (Guid.TryParse(seg, out var sguid) && _alienNodes.TryGetValue(sguid, out var snode))
-                    {
-                        var jo = snode.BuildNodeStateJson();
-                        await WriteJsonResponse(resp, 200, new JObject { ["success"] = true, ["state"] = jo }, origin);
-                        return;
-                    }
-                    await WriteJsonResponse(resp, 404, new { success = false, error = "node not found" }, origin);
-                    return;
-                }
-
-                // REST: POST batch values
-                if (req.HttpMethod == "POST" && path.StartsWith("/api/node/", StringComparison.OrdinalIgnoreCase) && path.EndsWith("/values", StringComparison.OrdinalIgnoreCase))
-                {
-                    var seg = path.Substring("/api/node/".Length);
-                    seg = seg.Substring(0, seg.Length - "/values".Length).Trim('/');
-                    if (Guid.TryParse(seg, out var vguid) && _alienNodes.TryGetValue(vguid, out var vnode))
-                    {
-                        using var reader = new StreamReader(req.InputStream, Encoding.UTF8);
-                        var body = await reader.ReadToEndAsync();
-                        var root = JObject.Parse(body);
-                        var valuesObj = root["values"] as JObject;
-                        if (valuesObj != null)
-                        {
-                            var dict = new Dictionary<string, object>();
-                            foreach (var p in valuesObj.Properties())
-                                dict[p.Name] = p.Value.ToObject<object>();
-                            _context.ExecuteOnUiThread(() =>
-                            {
-                                vnode.ApplyManualValuesFromDictionary(dict, fromLive: false);
-                                vnode.ClearPendingAndRecompute();
-                            });
-                        }
-                        await WriteJsonResponse(resp, 200, new { success = true }, origin);
-                        return;
-                    }
-                    await WriteJsonResponse(resp, 404, new { success = false, error = "node not found" }, origin);
                     return;
                 }
 
@@ -384,7 +291,7 @@ namespace ScriptNodePlugin
                 else
                     responseObj["result"] = result;
 
-                var responseJson = System.Text.Json.JsonSerializer.Serialize(responseObj, new JsonSerializerOptions
+                var responseJson = JsonSerializer.Serialize(responseObj, new JsonSerializerOptions
                 {
                     WriteIndented = false,
                     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
@@ -409,8 +316,8 @@ namespace ScriptNodePlugin
                     {
                         protocolVersion = "2025-06-18",
                         capabilities = new { tools = new { } },
-                        serverInfo = new { name = "Alien MCP", version = "0.2.0" },
-                        instructions = "Alien MCP: Grasshopper Alien nodes (Python + manual values) and legacy DataNode.\n\nTools:\n- get_canvas_info, get_component_outputs\n- get_scriptnode_info, get_script_source, write_script_source, get_error_log\n- get_node_state, set_param_value\n- get_datanode_info, set_datanode_values, add_datanode_items, set_datanode_schema\n- get_rhino_command_history, clear_rhino_command_history, run_rhino_command"
+                        serverInfo = new { name = "ScriptNode MCP", version = "0.1.0" },
+                        instructions = "ScriptNode MCP: Control Grasshopper ScriptNode and DataNode components.\n\nTools:\n- get_canvas_info: list all components, connections, and status\n- get_scriptnode_info: deep-dive into a ScriptNode (header, params, errors)\n- get_script_source: read the Python script file\n- write_script_source: write code to the Python script (triggers auto-reload)\n- get_error_log: read the gh_errors.log file\n- get_component_outputs: read output values from any component\n- get_datanode_info: get DataNode schema, items, and values\n- set_datanode_values: set values in DataNode items\n- add_datanode_items: create new items in a DataNode\n- set_datanode_schema: add/remove/modify DataNode fields"
                     };
 
                 case "initialized":
@@ -540,125 +447,12 @@ namespace ScriptNodePlugin
         private static async Task WriteJsonResponse(HttpListenerResponse resp, int status, object data, string origin)
         {
             resp.StatusCode = status;
-            resp.ContentType = "application/json; charset=utf-8";
+            resp.ContentType = "application/json";
             if (origin != null) resp.Headers.Add("Access-Control-Allow-Origin", origin);
-            string json;
-            if (data is JToken jt)
-                json = jt.ToString(Formatting.None);
-            else
-                json = System.Text.Json.JsonSerializer.Serialize(data);
+            var json = JsonSerializer.Serialize(data);
             var bytes = Encoding.UTF8.GetBytes(json);
             await resp.OutputStream.WriteAsync(bytes, 0, bytes.Length);
             resp.Close();
-        }
-
-        private async Task HandleAlienWebSocketAsync(HttpListenerContext ctx, CancellationToken ct)
-        {
-            var path = ctx.Request.Url?.AbsolutePath ?? "";
-            var prefix = "/ws/node/";
-            if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) { try { ctx.Response.Close(); } catch { } return; }
-            var gstr = path.Substring(prefix.Length).Trim('/');
-            if (!Guid.TryParse(gstr, out var guid)) { try { ctx.Response.Close(); } catch { } return; }
-
-            WebSocket ws;
-            try
-            {
-                ws = (await ctx.AcceptWebSocketAsync(null).ConfigureAwait(false)).WebSocket;
-            }
-            catch
-            {
-                try { ctx.Response.Abort(); } catch { }
-                return;
-            }
-            IDisposable reg = null;
-            try
-            {
-                reg = _wsHub.Register(guid, ws);
-
-                _context.ExecuteOnUiThread(() =>
-                {
-                    if (_alienNodes.TryGetValue(guid, out var node))
-                        BroadcastAlienNodeState(node);
-                });
-
-                var buffer = new byte[64 * 1024];
-                while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
-                {
-                    WebSocketReceiveResult rr;
-                    try
-                    {
-                        rr = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct).ConfigureAwait(false);
-                    }
-                    catch
-                    {
-                        break;
-                    }
-
-                    if (rr.MessageType == WebSocketMessageType.Close)
-                        break;
-
-                    if (rr.MessageType != WebSocketMessageType.Text) continue;
-
-                    var json = Encoding.UTF8.GetString(buffer, 0, rr.Count);
-                    JObject msg;
-                    try { msg = JObject.Parse(json); } catch { continue; }
-                    var type = msg.Value<string>("type");
-                    if (type == null) continue;
-
-                    if (!_alienNodes.TryGetValue(guid, out var node)) continue;
-
-                    switch (type)
-                    {
-                        case "setLive":
-                            {
-                                var en = msg.Value<bool?>("enabled") ?? false;
-                                _context.ExecuteOnUiThread(() =>
-                                {
-                                    node.SetLiveMode(en);
-                                    BroadcastAlienNodeState(node);
-                                });
-                                break;
-                            }
-                        case "apply":
-                            {
-                                var values = msg["values"] as JObject;
-                                if (values == null) break;
-                                var dict = new Dictionary<string, object>();
-                                foreach (var p in values.Properties())
-                                    dict[p.Name] = p.Value?.ToObject<object>();
-                                _context.ExecuteOnUiThread(() =>
-                                {
-                                    node.ApplyManualValuesFromDictionary(dict, fromLive: false);
-                                    node.ClearPendingAndRecompute();
-                                });
-                                break;
-                            }
-                        case "update":
-                            {
-                                var pname = msg.Value<string>("param");
-                                var valTok = msg["value"];
-                                if (string.IsNullOrEmpty(pname)) break;
-
-                                object val = valTok?.ToObject<object>();
-                                _context.ExecuteOnUiThread(() =>
-                                {
-                                    node.SetSingleManualValue(pname, val, fromLive: node.LiveMode);
-                                });
-                                break;
-                            }
-                    }
-                }
-            }
-            finally
-            {
-                reg?.Dispose();
-                try
-                {
-                    if (ws.State == WebSocketState.Open)
-                        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None).ConfigureAwait(false);
-                }
-                catch { }
-            }
         }
 
         private static object ConvertJsonValue(JsonElement el, Type target)

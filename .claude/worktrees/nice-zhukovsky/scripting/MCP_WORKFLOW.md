@@ -7,11 +7,9 @@
 
 - **URL:** `http://127.0.0.1:9876/mcp`
 - **Transport:** Streamable HTTP
-- **Auto-start:** The server boots when the first **Alien** (or legacy DataNode) component is placed on the GH canvas. A green dot on the MCP row confirms it's running.
-- **Shared:** All components share one server instance (HTTP + MCP + WebSocket editor on the same port).
-- **Browser editor:** `http://127.0.0.1:9876/editor/node/{instance_guid}` — also opened via the node's right-click **Edit Node…**
-- **REST:** `GET /api/node/{guid}/state`, `POST /api/node/{guid}/values` (JSON body `{ "values": { "param": ... } }`)
-- **Tools:** 15 total (canvas, Alien/script, DataNode, Rhino, **get_node_state**, **set_param_value**)
+- **Auto-start:** The server boots when the first ScriptNode component is placed on the GH canvas. A green dot on the component confirms it's running.
+- **Shared:** All ScriptNode components on the canvas share one server instance.
+- **Tools:** 13 total, across 4 categories
 
 ---
 
