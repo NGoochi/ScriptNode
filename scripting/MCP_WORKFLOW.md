@@ -211,23 +211,42 @@
 **Parameters:**
 - `component_id` (string, required) — GUID of the ScriptNode
 - `content` (string, required) — the full Python source code to write
+- `confirm_overwrite` (boolean, optional, default `false`) — **must be `true`** if the file already exists on disk and is **non-empty**. Otherwise the tool returns `success: false` and `requires_confirm_overwrite: true` (prevents agents/tests from wiping scripts by accident).
 
 **When to use:**
 - To create or overwrite a script directly from the agent
 - For rapid iteration without needing the user to save manually
-- When fixing a bug — read source, fix, write back
+- When fixing a bug — read source, fix, write back **with** `confirm_overwrite: true` when replacing an existing file
 
-**Returns:**
+**Overwrite safety:**
+- New files or **0-byte** existing files: write succeeds without `confirm_overwrite`.
+- Non-empty existing file: first call fails with a clear error; call again with `confirm_overwrite: true` after `get_script_source`.
+- Before overwriting a non-empty file, the plugin copies the old file to a timestamped backup next to it: `your_script.py.20260324-153045123.bak`.
+
+**Returns (success):**
 ```json
 {
   "success": true,
   "path": "C:\\projects\\my_script.py",
   "bytesWritten": 847,
-  "message": "Script written. ScriptNode will auto-reload via FileSystemWatcher."
+  "backup_path": "C:\\projects\\my_script.py.20260324-153045123.bak",
+  "message": "Previous contents saved to backup_path. Script written; ScriptNode will auto-reload via FileSystemWatcher."
+}
+```
+(`backup_path` is omitted or `null` when there was no non-empty prior file.)
+
+**Returns (blocked — need confirm):**
+```json
+{
+  "success": false,
+  "error": "File exists and is not empty. Use get_script_source first. To replace it, call write_script_source again with confirm_overwrite: true.",
+  "requires_confirm_overwrite": true,
+  "path": "C:\\projects\\my_script.py",
+  "existing_bytes": 1204
 }
 ```
 
-**Caution:** This writes the entire file. There is no merge or diff. Always `get_script_source` first, modify, then `write_script_source` with the complete file.
+**Caution:** This writes the entire file. There is no merge or diff. Always `get_script_source` first, modify, then `write_script_source` with the complete file and `confirm_overwrite: true` when replacing.
 
 ---
 

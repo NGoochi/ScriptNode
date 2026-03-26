@@ -362,6 +362,9 @@ namespace ScriptNodePlugin
                     if (inp.Meta.Min.HasValue) writer.SetDouble($"Input_{i}_MetaMin", inp.Meta.Min.Value);
                     if (inp.Meta.Max.HasValue) writer.SetDouble($"Input_{i}_MetaMax", inp.Meta.Max.Value);
                     if (inp.Meta.Step.HasValue) writer.SetDouble($"Input_{i}_MetaStep", inp.Meta.Step.Value);
+                    if (inp.Meta.Decimals.HasValue) writer.SetInt32($"Input_{i}_MetaDec", inp.Meta.Decimals.Value);
+                    if (inp.Meta.Default.HasValue) writer.SetDouble($"Input_{i}_MetaDef", inp.Meta.Default.Value);
+                    if (!string.IsNullOrEmpty(inp.Meta.DrivenBy)) writer.SetString($"Input_{i}_MetaDrivenBy", inp.Meta.DrivenBy);
                 }
 
                 writer.SetInt32("OutputCount", _currentHeader.Outputs.Count);
@@ -402,7 +405,10 @@ namespace ScriptNodePlugin
                         double? min = reader.ItemExists($"Input_{i}_MetaMin") ? reader.GetDouble($"Input_{i}_MetaMin") : (double?)null;
                         double? max = reader.ItemExists($"Input_{i}_MetaMax") ? reader.GetDouble($"Input_{i}_MetaMax") : (double?)null;
                         double? step = reader.ItemExists($"Input_{i}_MetaStep") ? reader.GetDouble($"Input_{i}_MetaStep") : (double?)null;
-                        meta = new ParamMetadata(desc, min, max, step);
+                        int? dec = reader.ItemExists($"Input_{i}_MetaDec") ? reader.GetInt32($"Input_{i}_MetaDec") : (int?)null;
+                        double? def = reader.ItemExists($"Input_{i}_MetaDef") ? reader.GetDouble($"Input_{i}_MetaDef") : (double?)null;
+                        string drivenBy = reader.ItemExists($"Input_{i}_MetaDrivenBy") ? reader.GetString($"Input_{i}_MetaDrivenBy") : null;
+                        meta = new ParamMetadata(desc, min, max, step, dec, def, drivenBy);
                     }
                     inputs.Add(new InputDef(name, type, isList, meta));
                 }
@@ -470,7 +476,7 @@ namespace ScriptNodePlugin
                 if (!McpServer.Instance.IsRunning)
                     McpServer.Instance.Start();
                 var port = McpServer.Instance.Port;
-                var url = $"http://127.0.0.1:{port}/editor/node/{InstanceGuid}";
+                var url = $"http://127.0.0.1:{port}/editor/?focus={InstanceGuid}";
                 Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
             }
             catch { }
@@ -528,6 +534,16 @@ namespace ScriptNodePlugin
             McpServer.Instance?.BroadcastAlienNodeState(this);
         }
 
+        public void StoreManualValueOnly(string paramName, object value)
+        {
+            var def = FindInputDef(paramName);
+            var typeHint = !string.IsNullOrEmpty(def.Name) ? def.TypeHint : "object";
+            var isList = !string.IsNullOrEmpty(def.Name) && def.IsList;
+            _manualValues.SetRaw(paramName, ManualValueStore.SerializeForStore(value, typeHint, isList));
+            _hasPendingChanges = true;
+            OnDisplayExpired(true);
+        }
+
         public JObject BuildNodeStateJson()
         {
             var arr = new JArray();
@@ -538,20 +554,26 @@ namespace ScriptNodePlugin
                 var def = FindInputDef(p.Name);
                 _manualValues.TryGetRaw(p.Name, out var manualStr);
                 bool wired = p.SourceCount > 0;
-                arr.Add(new JObject
+                var hasDef = !string.IsNullOrEmpty(def.Name);
+                var obj = new JObject
                 {
                     ["name"] = p.Name,
                     ["nickName"] = p.NickName,
                     ["direction"] = "input",
-                    ["typeHint"] = !string.IsNullOrEmpty(def.Name) ? def.TypeHint : p.TypeName,
-                    ["meta"] = !string.IsNullOrEmpty(def.Name) ? def.Meta.Description : "",
+                    ["typeHint"] = hasDef ? def.TypeHint : p.TypeName,
+                    ["isList"] = hasDef && def.IsList,
+                    ["meta"] = hasDef ? def.Meta.Description : "",
                     ["manualValue"] = wired ? null : ManualValueToJson(manualStr),
                     ["isWired"] = wired,
                     ["liveEnabled"] = _liveMode,
-                    ["min"] = !string.IsNullOrEmpty(def.Name) && def.Meta.Min.HasValue ? JToken.FromObject(def.Meta.Min.Value) : null,
-                    ["max"] = !string.IsNullOrEmpty(def.Name) && def.Meta.Max.HasValue ? JToken.FromObject(def.Meta.Max.Value) : null,
-                    ["step"] = !string.IsNullOrEmpty(def.Name) && def.Meta.Step.HasValue ? JToken.FromObject(def.Meta.Step.Value) : null,
-                });
+                    ["min"] = hasDef && def.Meta.Min.HasValue ? JToken.FromObject(def.Meta.Min.Value) : null,
+                    ["max"] = hasDef && def.Meta.Max.HasValue ? JToken.FromObject(def.Meta.Max.Value) : null,
+                    ["step"] = hasDef && def.Meta.Step.HasValue ? JToken.FromObject(def.Meta.Step.Value) : null,
+                    ["decimals"] = hasDef && def.Meta.Decimals.HasValue ? JToken.FromObject(def.Meta.Decimals.Value) : null,
+                    ["default"] = hasDef && def.Meta.Default.HasValue ? JToken.FromObject(def.Meta.Default.Value) : null,
+                    ["drivenBy"] = hasDef && !string.IsNullOrEmpty(def.Meta.DrivenBy) ? def.Meta.DrivenBy : null,
+                };
+                arr.Add(obj);
             }
 
             return new JObject
@@ -607,6 +629,9 @@ namespace ScriptNodePlugin
             if (!McpServer.Instance.IsRunning)
                 McpServer.Instance.Start();
             SetupWatcher();
+
+            if (McpServer.Instance.RegisteredAlienNodeCount == 1)
+                OpenBrowserEditor();
         }
 
         public override void RemovedFromDocument(GH_Document document)

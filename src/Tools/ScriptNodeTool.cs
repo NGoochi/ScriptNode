@@ -85,10 +85,11 @@ namespace ScriptNodePlugin.Tools
         }
 
         [McpTool]
-        [Description("Write new content to the Python script file that a ScriptNode is pointing at. The ScriptNode's FileSystemWatcher will detect the change and auto-reload the script, updating parameters and re-executing.")]
+        [Description("Write new content to the Python script file that a ScriptNode is pointing at. The ScriptNode's FileSystemWatcher will detect the change and auto-reload the script, updating parameters and re-executing. If the file already exists and is not empty, you must pass confirm_overwrite: true or the call is rejected (prevents accidental wipes). A timestamped .bak copy is saved before overwriting non-empty files.")]
         public string WriteScriptSource(
             [Description("GUID of the ScriptNode component")] string component_id,
-            [Description("The full Python source code to write to the file")] string content)
+            [Description("The full Python source code to write to the file")] string content,
+            [Description("Must be true when replacing an existing non-empty file. Omit or false for new/empty files only.")] bool confirm_overwrite = false)
         {
             return _ctx.ExecuteOnUiThread(() =>
             {
@@ -109,13 +110,40 @@ namespace ScriptNodePlugin.Tools
                     if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                         Directory.CreateDirectory(dir);
 
+                    string backupPath = null;
+                    if (File.Exists(path))
+                    {
+                        var len = new FileInfo(path).Length;
+                        if (len > 0)
+                        {
+                            if (!confirm_overwrite)
+                            {
+                                return JsonConvert.SerializeObject(new
+                                {
+                                    success = false,
+                                    error = "File exists and is not empty. Use get_script_source first. To replace it, call write_script_source again with confirm_overwrite: true.",
+                                    requires_confirm_overwrite = true,
+                                    path,
+                                    existing_bytes = len
+                                });
+                            }
+
+                            var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmssfff");
+                            backupPath = path + "." + stamp + ".bak";
+                            File.Copy(path, backupPath, overwrite: false);
+                        }
+                    }
+
                     File.WriteAllText(path, content);
                     return JsonConvert.SerializeObject(new
                     {
                         success = true,
                         path,
-                        bytesWritten = content.Length,
-                        message = "Script written. ScriptNode will auto-reload via FileSystemWatcher."
+                        bytesWritten = content?.Length ?? 0,
+                        backup_path = backupPath,
+                        message = backupPath != null
+                            ? "Previous contents saved to backup_path. Script written; ScriptNode will auto-reload via FileSystemWatcher."
+                            : "Script written. ScriptNode will auto-reload via FileSystemWatcher."
                     });
                 }
                 catch (Exception ex)

@@ -90,7 +90,7 @@ The built-in MCP server auto-starts when the first ScriptNode is placed (green d
 | `run_rhino_command` | Sends a command to the Rhino command line |
 | `get_scriptnode_info` | Deep-dive into a ScriptNode: script path, parsed header, runtime messages |
 | `get_script_source` | Reads the Python script file contents |
-| `write_script_source` | Writes new code to the Python file (triggers auto-reload) |
+| `write_script_source` | Writes new code; non-empty overwrites need `confirm_overwrite: true` + timestamped `.bak` backup |
 | `get_error_log` | Reads `gh_errors.log` for debugging |
 
 ### Editor Configuration

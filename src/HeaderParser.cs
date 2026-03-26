@@ -18,22 +18,34 @@ namespace ScriptNodePlugin
         public double? Min { get; }
         public double? Max { get; }
         public double? Step { get; }
+        public int? Decimals { get; }
+        public double? Default { get; }
+        /// <summary>Name of another input whose integer value drives this param's list count.</summary>
+        public string DrivenBy { get; }
 
-        public ParamMetadata(string description, double? min, double? max, double? step)
+        public ParamMetadata(string description, double? min, double? max, double? step,
+            int? decimals = null, double? defaultVal = null, string drivenBy = null)
         {
             Description = description ?? "";
             Min = min;
             Max = max;
             Step = step;
+            Decimals = decimals;
+            Default = defaultVal;
+            DrivenBy = drivenBy ?? "";
         }
 
         public static ParamMetadata Empty => new ParamMetadata("", null, null, null);
 
         public bool Equals(ParamMetadata other) =>
-            Description == other.Description && Min == other.Min && Max == other.Max && Step == other.Step;
+            Description == other.Description && Min == other.Min && Max == other.Max
+            && Step == other.Step && Decimals == other.Decimals
+            && Default == other.Default && DrivenBy == other.DrivenBy;
 
         public override bool Equals(object obj) => obj is ParamMetadata pm && Equals(pm);
-        public override int GetHashCode() => HashCode.Combine(Description, Min, Max, Step);
+        public override int GetHashCode() => HashCode.Combine(
+            HashCode.Combine(Description, Min, Max, Step),
+            HashCode.Combine(Decimals, Default, DrivenBy));
     }
 
     /// <summary>One parsed input from NODE_INPUTS.</summary>
@@ -134,6 +146,15 @@ namespace ScriptNodePlugin
         /// <summary>Free-text range: "Range: 0.0 – 100" or "Range: 0-100"</summary>
         private static readonly Regex FreetextRange =
             new Regex(@"Range\s*:\s*([-+]?\d*\.?\d+)\s*[-–—]\s*([-+]?\d*\.?\d+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex StructuredDecimals =
+            new Regex(@"\bdecimals\s*=\s*(\d+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex StructuredDefault =
+            new Regex(@"\bdefault\s*=\s*([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex StructuredDrivenBy =
+            new Regex(@"\bdriven_by\s*=\s*([A-Za-z_]\w*)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         public static ScriptHeader Parse(string filePath)
         {
@@ -382,7 +403,22 @@ namespace ScriptNodePlugin
                 }
             }
 
-            return new ParamMetadata(description, min, max, step);
+            int? decimals = null;
+            var dm = StructuredDecimals.Match(rest);
+            if (dm.Success && int.TryParse(dm.Groups[1].Value, out var vdec))
+                decimals = vdec;
+
+            double? defaultVal = null;
+            var dfm = StructuredDefault.Match(rest);
+            if (dfm.Success && double.TryParse(dfm.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var vdef))
+                defaultVal = vdef;
+
+            string drivenBy = null;
+            var dbm = StructuredDrivenBy.Match(rest);
+            if (dbm.Success)
+                drivenBy = dbm.Groups[1].Value;
+
+            return new ParamMetadata(description, min, max, step, decimals, defaultVal, drivenBy);
         }
 
         public static IGH_Param CreateParamForType(string typeHint, string name, bool isList, ParamMetadata meta = default)

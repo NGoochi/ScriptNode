@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Alien — Dashboard</title>
+<style>
+:root {
+  --bg: #09090b; --surface: #131316; --card: #1a1a1f; --border: #27272a;
+  --text: #fafafa; --muted: #71717a; --accent: #00c853;
+  --font: 'Inter', system-ui, -apple-system, sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--font); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+header { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+header h1 { font-size: 14px; font-weight: 700; letter-spacing: .06em; color: var(--accent); }
+header .subtitle { font-size: 11px; color: var(--muted); }
+
+.tab-bar { display: flex; gap: 0; background: var(--surface); border-bottom: 1px solid var(--border); overflow-x: auto; flex-shrink: 0; padding: 0 8px; }
+.tab-bar::-webkit-scrollbar { height: 2px; }
+.tab-bar::-webkit-scrollbar-thumb { background: var(--border); }
+.tab { padding: 8px 16px; font-size: 12px; font-weight: 500; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; transition: all .15s; user-select: none; }
+.tab:hover { color: var(--text); background: var(--card); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab .param-count { font-size: 10px; color: var(--muted); margin-left: 4px; opacity: .6; }
+
+.frame-container { flex: 1; position: relative; }
+.frame-container iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: none; background: var(--bg); }
+
+.empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--muted); gap: 8px; }
+.empty-state h2 { font-size: 16px; font-weight: 600; color: var(--text); }
+.empty-state p { font-size: 13px; max-width: 400px; text-align: center; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>ALIEN</h1>
+  <span class="subtitle">Dashboard</span>
+  <span class="subtitle" id="nodeCount" style="margin-left:auto"></span>
+</header>
+
+<div class="tab-bar" id="tabBar"></div>
+
+<div class="frame-container" id="frameContainer">
+  <div class="empty-state" id="emptyState">
+    <h2>No nodes loaded</h2>
+    <p>Place Alien components on the Grasshopper canvas. They will appear here as tabs automatically.</p>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+var PORT = {{PORT}};
+var BASE = 'http://127.0.0.1:' + PORT;
+var tabBar = document.getElementById('tabBar');
+var frameContainer = document.getElementById('frameContainer');
+var emptyState = document.getElementById('emptyState');
+var nodeCountEl = document.getElementById('nodeCount');
+var nodes = [];
+var activeGuid = null;
+var iframes = {};
+
+// ── Parse ?focus=GUID from URL ────────────────────
+var urlParams = new URLSearchParams(window.location.search);
+var pendingFocus = urlParams.get('focus');
+
+// ── BroadcastChannel: prevent duplicate tabs ──────
+var channel = null;
+var isClosing = false;
+try { channel = new BroadcastChannel('alien-dashboard'); } catch(e){}
+
+if(channel){
+  channel.postMessage({type:'ping', focus: pendingFocus});
+
+  var gotPong = false;
+  var pongTimeout = setTimeout(function(){
+    if(!gotPong) initDashboard();
+  }, 300);
+
+  channel.onmessage = function(ev){
+    var msg = ev.data;
+    if(msg.type === 'pong' && !isClosing){
+      gotPong = true;
+      clearTimeout(pongTimeout);
+      if(pendingFocus){
+        channel.postMessage({type:'focus', guid: pendingFocus});
+      }
+      isClosing = true;
+      try { window.close(); } catch(e){}
+      document.body.innerHTML = '<div style="padding:40px;color:#71717a;font-family:system-ui;text-align:center"><p>Switching to existing dashboard tab...</p><p style="font-size:12px;margin-top:8px">You can close this tab.</p></div>';
+      return;
+    }
+    if(msg.type === 'ping'){
+      channel.postMessage({type:'pong'});
+      if(msg.focus) focusNode(msg.focus);
+    }
+    if(msg.type === 'focus'){
+      focusNode(msg.guid);
+    }
+  };
+} else {
+  initDashboard();
+}
+
+function focusNode(guid){
+  if(guid && nodes.some(function(n){ return n.guid===guid; })){
+    selectTab(guid);
+  } else {
+    pendingFocus = guid;
+  }
+}
+
+function initDashboard(){
+  fetchNodes();
+  setInterval(fetchNodes, 5000);
+}
+
+function fetchNodes(){
+  fetch(BASE + '/api/nodes')
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if(!data.success) return;
+      var newNodes = data.nodes || [];
+      var changed = JSON.stringify(newNodes.map(function(n){return n.guid;})) !== JSON.stringify(nodes.map(function(n){return n.guid;}));
+      nodes = newNodes;
+      nodeCountEl.textContent = nodes.length + ' node' + (nodes.length!==1?'s':'');
+
+      if(changed){
+        renderTabs();
+        if(pendingFocus && nodes.some(function(n){ return n.guid===pendingFocus; })){
+          selectTab(pendingFocus);
+          pendingFocus = null;
+        } else if(nodes.length > 0 && (!activeGuid || !nodes.some(function(n){return n.guid===activeGuid;}))){
+          selectTab(nodes[0].guid);
+        }
+        if(nodes.length === 0){
+          activeGuid = null;
+          showEmpty(true);
+        }
+      }
+    })
+    .catch(function(){});
+}
+
+function renderTabs(){
+  tabBar.innerHTML = '';
+  nodes.forEach(function(n){
+    var tab = document.createElement('div');
+    tab.className = 'tab' + (n.guid===activeGuid ? ' active' : '');
+    tab.innerHTML = n.scriptName + '<span class="param-count">' + n.paramCount + 'p</span>';
+    tab.title = n.scriptPath || n.guid;
+    tab.onclick = function(){ selectTab(n.guid); };
+    tabBar.appendChild(tab);
+  });
+}
+
+function selectTab(guid){
+  activeGuid = guid;
+  renderTabs();
+  showEmpty(false);
+
+  Object.keys(iframes).forEach(function(g){
+    iframes[g].style.display = 'none';
+  });
+
+  if(!iframes[guid]){
+    var iframe = document.createElement('iframe');
+    iframe.src = BASE + '/editor/node/' + guid;
+    frameContainer.appendChild(iframe);
+    iframes[guid] = iframe;
+  }
+  iframes[guid].style.display = 'block';
+
+  Object.keys(iframes).forEach(function(g){
+    if(!nodes.some(function(n){ return n.guid===g; })){
+      iframes[g].remove();
+      delete iframes[g];
+    }
+  });
+}
+
+function showEmpty(show){
+  emptyState.style.display = show ? 'flex' : 'none';
+}
+
+})();
+</script>
+</body>
+</html>

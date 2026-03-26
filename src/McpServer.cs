@@ -56,6 +56,7 @@ namespace ScriptNodePlugin
             new ConcurrentDictionary<Guid, AlienNodeComponent>();
 
         public IReadOnlyDictionary<Guid, AlienNodeComponent> RegisteredAlienNodes => _alienNodes;
+        public int RegisteredAlienNodeCount => _alienNodes.Count;
 
         public void RegisterAlienNode(AlienNodeComponent node)
         {
@@ -271,7 +272,20 @@ namespace ScriptNodePlugin
                     return;
                 }
 
-                // Browser editor HTML
+                // Dashboard (multi-node tabbed page)
+                if (req.HttpMethod == "GET" && (path == "/editor" || path == "/editor/"))
+                {
+                    var html = EditorHtml.GetDashboard(_port);
+                    resp.Headers.Add("Access-Control-Allow-Origin", origin ?? "*");
+                    resp.ContentType = "text/html; charset=utf-8";
+                    resp.StatusCode = 200;
+                    var bytes = Encoding.UTF8.GetBytes(html);
+                    await resp.OutputStream.WriteAsync(bytes, 0, bytes.Length);
+                    resp.Close();
+                    return;
+                }
+
+                // Browser editor HTML (single node)
                 if (req.HttpMethod == "GET" && path.StartsWith("/editor/node/", StringComparison.OrdinalIgnoreCase))
                 {
                     var seg = path.Substring("/editor/node/".Length).Trim('/');
@@ -286,6 +300,26 @@ namespace ScriptNodePlugin
                         resp.Close();
                         return;
                     }
+                }
+
+                // API: list all registered Alien nodes
+                if (req.HttpMethod == "GET" && (path == "/api/nodes" || path == "/api/nodes/"))
+                {
+                    var nodes = new JArray();
+                    foreach (var kv in _alienNodes)
+                    {
+                        var n = kv.Value;
+                        nodes.Add(new JObject
+                        {
+                            ["guid"] = kv.Key.ToString(),
+                            ["scriptName"] = !string.IsNullOrEmpty(n.ScriptPath)
+                                ? System.IO.Path.GetFileNameWithoutExtension(n.ScriptPath) : "ALIEN",
+                            ["scriptPath"] = n.ScriptPath ?? "",
+                            ["paramCount"] = Math.Max(0, n.Params.Input.Count - 1),
+                        });
+                    }
+                    await WriteJsonResponse(resp, 200, new JObject { ["success"] = true, ["nodes"] = nodes }, origin);
+                    return;
                 }
 
                 // REST: GET state
@@ -410,7 +444,7 @@ namespace ScriptNodePlugin
                         protocolVersion = "2025-06-18",
                         capabilities = new { tools = new { } },
                         serverInfo = new { name = "Alien MCP", version = "0.2.0" },
-                        instructions = "Alien MCP: Grasshopper Alien nodes (Python + manual values) and legacy DataNode.\n\nTools:\n- get_canvas_info, get_component_outputs\n- get_scriptnode_info, get_script_source, write_script_source, get_error_log\n- get_node_state, set_param_value\n- get_datanode_info, set_datanode_values, add_datanode_items, set_datanode_schema\n- get_rhino_command_history, clear_rhino_command_history, run_rhino_command"
+                        instructions = "Alien MCP: Grasshopper Alien nodes (Python + manual values) and legacy DataNode.\n\nTools:\n- get_canvas_info, get_component_outputs\n- get_scriptnode_info, get_script_source, write_script_source (requires confirm_overwrite:true to replace non-empty files; backup .bak created), get_error_log\n- get_node_state, set_param_value\n- get_datanode_info, set_datanode_values, add_datanode_items, set_datanode_schema\n- get_rhino_command_history, clear_rhino_command_history, run_rhino_command"
                     };
 
                 case "initialized":
@@ -643,6 +677,18 @@ namespace ScriptNodePlugin
                                 _context.ExecuteOnUiThread(() =>
                                 {
                                     node.SetSingleManualValue(pname, val, fromLive: node.LiveMode);
+                                });
+                                break;
+                            }
+                        case "store":
+                            {
+                                var pname = msg.Value<string>("param");
+                                var valTok = msg["value"];
+                                if (string.IsNullOrEmpty(pname)) break;
+                                object val = valTok?.ToObject<object>();
+                                _context.ExecuteOnUiThread(() =>
+                                {
+                                    node.StoreManualValueOnly(pname, val);
                                 });
                                 break;
                             }

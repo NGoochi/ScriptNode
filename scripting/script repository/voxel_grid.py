@@ -1,5 +1,5 @@
 #! python 3
-# NODE_INPUTS: origin:Point3d, x_count:int, y_count:int, z_count:int, cell_size:Vector3d, gap_size:Vector3d, boundary_brep:Brep, subtract_brep:Brep, insert_mesh:Mesh, insert_brep:Brep, attractor_pt:Point3d, attr_radius:float, attr_strength:float, grid_rotation:Vector3d, voxel_rotation:Vector3d, align_to_boundary:bool, output_mode:int, seed:int
+# NODE_INPUTS: origin:Point3d, x_count:int, y_count:int, z_count:int, cell_size:Vector3d, gap_size:Vector3d, boundary_brep:Brep, subtract_brep:Brep, insert_mesh:Mesh, insert_brep:Brep, attractor_pt:Point3d, attr_radius:float, attr_strength:float, grid_rotation:Vector3d, voxel_rotation:Vector3d, align_to_boundary:bool, output_mode:int, seed:int, random_scale:float
 # NODE_OUTPUTS: voxels, centers, count, status_message
 #
 # Pure voxel grid generator. Level system moved to levels.py.
@@ -15,25 +15,34 @@ def unwrap(obj):
     if obj is None: return None
     return obj.Value if hasattr(obj, 'Value') else obj
 
+def unwrap_geo(obj, expected_type):
+    """Unwrap and validate geometry — returns None if wrong type (e.g. stale string from manual store)."""
+    v = unwrap(obj)
+    if v is None: return None
+    if isinstance(v, expected_type): return v
+    return None
+
 # ─── DEFENSIVE DEFAULTS ──────────────────────────────────────────────
 origin = unwrap(origin)
-if origin is None:
+if not isinstance(origin, rg.Point3d):
     origin = rg.Point3d(0, 0, 0)
 
-boundary_brep = unwrap(boundary_brep)
-subtract_brep = unwrap(subtract_brep)
-insert_mesh = unwrap(insert_mesh)
-insert_brep = unwrap(insert_brep)
-attractor_pt = unwrap(attractor_pt)
+boundary_brep = unwrap_geo(boundary_brep, rg.Brep)
+subtract_brep = unwrap_geo(subtract_brep, rg.Brep)
+insert_mesh = unwrap_geo(insert_mesh, rg.Mesh)
+insert_brep = unwrap_geo(insert_brep, rg.Brep)
+attractor_pt = unwrap_geo(attractor_pt, rg.Point3d)
 
-if cell_size is None:
+cell_size = unwrap(cell_size)
+if cell_size is None or not isinstance(cell_size, rg.Vector3d):
     cs_x, cs_y, cs_z = 5000.0, 5000.0, 3500.0
 else:
     cs_x = cell_size.X if cell_size.X > 0 else 5000.0
     cs_y = cell_size.Y if cell_size.Y > 0 else 5000.0
     cs_z = cell_size.Z if cell_size.Z > 0 else 3500.0
 
-if gap_size is None:
+gap_size = unwrap(gap_size)
+if gap_size is None or not isinstance(gap_size, rg.Vector3d):
     gp_x, gp_y, gp_z = 0.0, 0.0, 0.0
 else:
     gp_x = gap_size.X
@@ -49,12 +58,19 @@ if attr_strength is None: attr_strength = 0.0
 if output_mode is None: output_mode = 1
 if seed is not None: random.seed(seed)
 
-if grid_rotation is None:
+# random_scale: 0.0 = uniform, 1.0 = sizes vary from 0x to 2x
+if random_scale is None or not isinstance(random_scale, (int, float)) or random_scale < 0:
+    random_scale = 0.0
+random_scale = min(float(random_scale), 1.0)
+
+grid_rotation = unwrap(grid_rotation)
+if grid_rotation is None or not isinstance(grid_rotation, rg.Vector3d):
     gr_x, gr_y, gr_z = 0.0, 0.0, 0.0
 else:
     gr_x, gr_y, gr_z = grid_rotation.X, grid_rotation.Y, grid_rotation.Z
 
-if voxel_rotation is None:
+voxel_rotation = unwrap(voxel_rotation)
+if voxel_rotation is None or not isinstance(voxel_rotation, rg.Vector3d):
     vr_x, vr_y, vr_z = 0.0, 0.0, 0.0
 else:
     vr_x, vr_y, vr_z = voxel_rotation.X, voxel_rotation.Y, voxel_rotation.Z
@@ -72,7 +88,6 @@ grid_plane = rg.Plane.WorldXY
 grid_plane.Origin = rg.Point3d(origin)
 
 if align_to_boundary and boundary_brep is not None:
-    # Section the brep at its vertical midpoint to get a representative cross-section
     bb = boundary_brep.GetBoundingBox(True)
     mid_z = (bb.Min.Z + bb.Max.Z) / 2.0
     cut_plane = rg.Plane(rg.Point3d(0, 0, mid_z), rg.Vector3d.ZAxis)
@@ -81,13 +96,9 @@ if align_to_boundary and boundary_brep is not None:
         rg.Point3d(0, 0, mid_z - 1), rg.Point3d(0, 0, mid_z + 1), 10)
 
     if section_curves and len(section_curves) > 0:
-        # Find the longest section curve (most representative)
         longest = max(section_curves, key=lambda c: c.GetLength())
 
-        # Get oriented bounding box of the section curve
-        # Use curve's bounding box to find principal direction
         if longest.IsValid:
-            # Sample points along the curve and compute PCA-like orientation
             pts = []
             divs = longest.DivideByCount(20, True)
             if divs:
@@ -95,7 +106,6 @@ if align_to_boundary and boundary_brep is not None:
                     pts.append(longest.PointAt(t))
 
             if len(pts) > 2:
-                # Find the two points furthest apart — this gives the long axis
                 max_dist = 0
                 pt_a, pt_b = pts[0], pts[1]
                 for i in range(len(pts)):
@@ -106,7 +116,7 @@ if align_to_boundary and boundary_brep is not None:
                             pt_a, pt_b = pts[i], pts[j]
 
                 x_dir = rg.Vector3d(pt_b - pt_a)
-                x_dir.Z = 0  # Keep horizontal
+                x_dir.Z = 0
                 if x_dir.Length > 0.001:
                     x_dir.Unitize()
                     y_dir = rg.Vector3d.CrossProduct(rg.Vector3d.ZAxis, x_dir)
@@ -135,26 +145,21 @@ valid_voxels = []
 for ix in range(x_count):
     for iy in range(y_count):
         for iz in range(z_count):
-            # Position in grid-local coords
             local_x = ix * step_x
             local_y = iy * step_y
             local_z = iz * step_z
 
-            # World position via grid plane
             world_xy = grid_plane.PointAt(local_x, local_y)
             x = world_xy.X
             y = world_xy.Y
             z = origin.Z + local_z
 
-            # Center
             center_xy = grid_plane.PointAt(local_x + cs_x / 2.0, local_y + cs_y / 2.0)
             center = rg.Point3d(center_xy.X, center_xy.Y, z + cs_z / 2.0)
 
-            # Boundary check
             if boundary_brep is not None and not boundary_brep.IsPointInside(center, tol, False):
                 continue
 
-            # Subtract check
             if subtract_brep is not None and subtract_brep.IsPointInside(center, tol, False):
                 continue
 
@@ -166,12 +171,20 @@ for ix in range(x_count):
                     influence = 1.0 - (dist / attr_radius)
                     attr_mult = 1.0 + (influence * attr_strength)
 
-            if attr_mult < 0.001:
+            # Per-voxel random scale variation
+            rand_mult = 1.0
+            if random_scale > 0:
+                rand_mult = 1.0 + random.uniform(-random_scale, random_scale)
+                rand_mult = max(0.01, rand_mult)
+
+            final_scale = attr_mult * rand_mult
+
+            if final_scale < 0.001:
                 continue
 
             valid_voxels.append({
                 'center': center,
-                'scale': attr_mult,
+                'scale': final_scale,
                 'x': x, 'y': y, 'z': z,
             })
             centers.append(center)
@@ -188,7 +201,6 @@ def build_corners(center, sx, sy, sz, scale):
         (-hx, -hy,  hz), (hx, -hy,  hz), (hx, hy,  hz), (-hx, hy,  hz)
     ]
 
-    # Per-voxel rotation
     if vr_x != 0.0 or vr_y != 0.0 or vr_z != 0.0:
         rotated = []
         for (dx, dy, dz) in corners:
@@ -220,7 +232,7 @@ def build_corners(center, sx, sy, sz, scale):
 
 # ─── OUTPUT ──────────────────────────────────────────────────────────
 if output_mode == 0:
-    pass  # points only
+    pass
 
 elif output_mode == 1:
     mesh = rg.Mesh()
@@ -294,5 +306,5 @@ elif output_mode == 4:
 
 # ─── FINAL ───────────────────────────────────────────────────────────
 count = len(valid_voxels)
-status_message = "Voxels: {} | Grid: {}x{}x{} | Mode: {} | Align: {}".format(
-    count, x_count, y_count, z_count, output_mode, align_to_boundary)
+status_message = "Voxels: {} | Grid: {}x{}x{} | Mode: {} | RandScale: {:.2f}".format(
+    count, x_count, y_count, z_count, output_mode, random_scale)

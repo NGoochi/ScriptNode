@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Alien — Node Editor</title>
+<style>
+:root {
+  --bg: #09090b; --surface: #131316; --card: #1a1a1f; --border: #27272a;
+  --text: #fafafa; --muted: #71717a; --accent: #00c853;
+  --ring: rgba(0,200,83,.25); --warn: #f59e0b; --error: #ef4444;
+  --radius-sm: 4px; --radius: 6px; --radius-lg: 12px;
+  --font: 'Inter', system-ui, -apple-system, sans-serif;
+  --type-float: #3b82f6; --type-int: #8b5cf6; --type-str: #f59e0b;
+  --type-bool: #22c55e; --type-point3d: #ec4899; --type-vector3d: #14b8a6;
+  --type-geo: #f97316; --type-default: #71717a;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; line-height: 1.5; min-height: 100vh; }
+
+/* ── Banner ────────────────────────────────────── */
+#banner { display: none; background: #3a1800; color: #fed7aa; border-bottom: 1px solid #92400e; padding: 8px 16px; font-size: 12px; text-align: center; }
+#banner.show { display: block; }
+
+/* ── Header ────────────────────────────────────── */
+header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100; }
+header h1 { font-size: 14px; font-weight: 700; letter-spacing: .06em; color: var(--accent); flex-shrink: 0; }
+.script-path { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40vw; }
+.toolbar { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+/* ── Switch (Live toggle) ──────────────────────── */
+.switch-row { display: flex; align-items: center; gap: 6px; }
+.switch-row span { font-size: 11px; color: var(--muted); }
+.switch { position: relative; width: 36px; height: 20px; background: #27272a; border-radius: 10px; cursor: pointer; border: 1px solid var(--border); transition: background .15s; flex-shrink: 0; }
+.switch::after { content: ''; position: absolute; width: 14px; height: 14px; background: #71717a; border-radius: 50%; top: 2px; left: 3px; transition: all .15s; }
+.switch.on { background: rgba(0,200,83,.3); border-color: var(--accent); }
+.switch.on::after { left: 17px; background: var(--accent); }
+
+/* ── Buttons ───────────────────────────────────── */
+.btn { display: inline-flex; align-items: center; gap: 4px; padding: 6px 14px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid transparent; transition: all .15s; }
+.btn-primary { background: var(--accent); color: #000; border-color: var(--accent); }
+.btn-primary:hover { opacity: .9; }
+.btn-primary:disabled { opacity: .35; cursor: not-allowed; }
+.btn-ghost { background: transparent; color: var(--muted); border-color: var(--border); }
+.btn-ghost:hover { color: var(--text); background: var(--card); }
+.btn-sm { padding: 3px 8px; font-size: 11px; }
+.btn-icon { padding: 4px 6px; line-height: 1; }
+.badge-count { background: var(--accent); color: #000; font-size: 10px; padding: 1px 5px; border-radius: 8px; font-weight: 700; margin-left: 4px; }
+
+/* ── Main ──────────────────────────────────────── */
+main { padding: 12px 16px 80px; max-width: 780px; }
+
+/* ── Card view ─────────────────────────────────── */
+.param-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px; transition: border-color .15s; }
+.param-card:hover { border-color: #3f3f46; }
+.param-card.wired { opacity: .45; }
+.param-card.wired .ctrl { pointer-events: none; }
+.param-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.type-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.param-name { font-size: 13px; font-weight: 600; }
+.type-badge { font-size: 10px; padding: 1px 6px; border-radius: 3px; font-weight: 500; background: var(--surface); border: 1px solid var(--border); }
+.wired-badge { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: #27272a; color: var(--muted); margin-left: auto; }
+.param-meta { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+.list-toggle { cursor: pointer; color: var(--muted); font-size: 14px; padding: 2px 4px; border-radius: 3px; margin-left: auto; }
+.list-toggle:hover { color: var(--text); background: var(--border); }
+
+/* ── Slider row ────────────────────────────────── */
+.slider-row { display: flex; align-items: center; gap: 8px; }
+.slider-track { flex: 1; position: relative; height: 6px; background: #27272a; border-radius: 3px; cursor: pointer; }
+.slider-fill { position: absolute; left: 0; top: 0; height: 100%; border-radius: 3px; pointer-events: none; }
+.slider-thumb { position: absolute; top: 50%; width: 16px; height: 16px; border-radius: 50%; background: var(--text); border: 2px solid var(--accent); transform: translate(-50%, -50%); cursor: grab; z-index: 2; transition: box-shadow .1s; }
+.slider-thumb:hover, .slider-thumb:active { box-shadow: 0 0 0 4px var(--ring); }
+input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 6px; background: #27272a; border-radius: 3px; outline: none; cursor: pointer; flex: 1; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--text); border: 2px solid var(--accent); cursor: grab; }
+input[type=range]::-webkit-slider-thumb:hover { box-shadow: 0 0 0 4px var(--ring); }
+.num-input { width: 72px; padding: 4px 6px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 12px; font-family: var(--font); text-align: right; }
+.num-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--ring); }
+
+/* ── Range popover ─────────────────────────────── */
+.range-btn { cursor: pointer; color: var(--muted); font-size: 14px; padding: 2px 6px; border-radius: var(--radius-sm); }
+.range-btn:hover { color: var(--text); background: var(--card); }
+.range-pop { display: none; margin-top: 6px; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.range-pop.open { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.range-pop label { font-size: 10px; color: var(--muted); }
+.range-pop input { width: 64px; padding: 3px 5px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--card); color: var(--text); font-size: 11px; }
+
+/* ── Bool toggle ───────────────────────────────── */
+.bool-switch { width: 40px; height: 22px; background: #27272a; border-radius: 11px; cursor: pointer; border: 1px solid var(--border); position: relative; transition: background .15s; }
+.bool-switch.on { background: rgba(0,200,83,.3); border-color: var(--accent); }
+.bool-switch::after { content: ''; position: absolute; width: 16px; height: 16px; border-radius: 50%; top: 2px; left: 3px; background: #71717a; transition: all .15s; }
+.bool-switch.on::after { left: 19px; background: var(--accent); }
+
+/* ── XYZ / Domain / Colour ─────────────────────── */
+.xyz-group { display: flex; flex-direction: column; gap: 6px; }
+.xyz-slider-row { display: flex; align-items: center; gap: 6px; }
+.xyz-slider-row label { font-size: 10px; font-weight: 700; min-width: 14px; text-align: center; }
+.xyz-slider-row input[type=range] { flex: 1; }
+.xyz-slider-row .num-input { width: 72px; }
+.xyz-row { display: flex; gap: 6px; align-items: center; }
+.xyz-row label { font-size: 10px; font-weight: 600; color: var(--muted); min-width: 14px; }
+.xyz-row input { width: 72px; }
+.color-row { display: flex; gap: 8px; align-items: center; }
+.color-swatch { width: 32px; height: 32px; border-radius: var(--radius-sm); border: 1px solid var(--border); cursor: pointer; padding: 0; }
+.color-hex { width: 90px; }
+
+/* ── String textarea ───────────────────────────── */
+.str-input { width: 100%; padding: 6px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--text); font-family: var(--font); font-size: 12px; resize: vertical; }
+.str-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--ring); }
+
+/* ── List mode (data grid) ─────────────────────── */
+.list-panel { margin-top: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.list-toolbar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.list-grid { max-height: 300px; overflow-y: auto; }
+.list-row { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid #1e1e22; }
+.list-row:hover { background: var(--card); }
+.list-row .idx { font-size: 10px; color: var(--muted); min-width: 24px; text-align: right; }
+.list-row .del-btn { cursor: pointer; color: var(--muted); font-size: 12px; padding: 2px 4px; border-radius: 3px; }
+.list-row .del-btn:hover { color: var(--error); background: rgba(239,68,68,.1); }
+
+/* ── Level Grid ───────────────────────────────── */
+.level-grid { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 10px; overflow: hidden; }
+.level-grid-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.level-grid-title { font-size: 12px; font-weight: 700; color: var(--accent); letter-spacing: .04em; }
+.level-grid-count { font-size: 11px; color: var(--muted); }
+.level-grid-scroll { max-height: 560px; overflow: auto; }
+.level-grid-table { width: 100%; border-collapse: collapse; }
+.level-grid-table th { position: sticky; top: 0; z-index: 2; background: var(--surface); padding: 6px 4px; text-align: center; border-bottom: 2px solid var(--border); font-size: 11px; font-weight: 600; color: var(--text); white-space: nowrap; }
+.level-grid-table th .col-range { display: block; font-size: 9px; font-weight: 400; color: var(--muted); margin-top: 1px; }
+.level-grid-table td { padding: 2px 3px; border-bottom: 1px solid #1e1e22; }
+.level-grid-table tbody tr:hover td { background: rgba(255,255,255,.03); }
+.level-grid-table tbody tr:nth-child(even) td { background: rgba(255,255,255,.01); }
+.level-grid-table tbody tr:nth-child(even):hover td { background: rgba(255,255,255,.04); }
+.level-grid-table .row-idx { width: 36px; text-align: right; padding-right: 8px; font-size: 10px; color: var(--muted); font-weight: 600; vertical-align: middle; }
+.level-grid-table .cell-input { width: 100%; min-width: 52px; padding: 4px 4px; border: 1px solid transparent; border-radius: 3px; background: transparent; color: var(--text); font-size: 12px; font-family: var(--font); text-align: center; transition: border-color .1s, background .1s; }
+.level-grid-table .cell-input:hover { border-color: var(--border); background: var(--bg); }
+.level-grid-table .cell-input:focus { outline: none; border-color: var(--accent); background: var(--bg); box-shadow: 0 0 0 2px var(--ring); }
+.level-grid-table th.idx-col { width: 36px; }
+.level-grid-fill { display: flex; gap: 4px; align-items: center; margin-top: 4px; }
+.level-grid-fill select, .level-grid-fill input { font-size: 10px; padding: 2px 4px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; }
+.col-header-btn { cursor: pointer; border-radius: 3px; padding: 2px 4px; }
+.col-header-btn:hover { background: var(--border); }
+
+/* ── Footer ────────────────────────────────────── */
+footer { position: fixed; bottom: 0; left: 0; right: 0; padding: 6px 16px; font-size: 11px; color: var(--muted); background: var(--surface); border-top: 1px solid var(--border); display: flex; justify-content: space-between; z-index: 100; }
+</style>
+</head>
+<body>
+
+<div id="banner">Disconnected — reconnecting…</div>
+
+<header>
+  <h1>ALIEN</h1>
+  <span class="script-path" id="scriptPath"></span>
+  <div class="toolbar">
+    <div class="switch-row">
+      <span>Live</span>
+      <div id="liveSw" class="switch" title="Live mode — send values on every change"></div>
+    </div>
+    <button id="applyBtn" class="btn btn-primary">Apply</button>
+  </div>
+</header>
+
+<main>
+  <div id="cardContainer"></div>
+</main>
+
+<footer>
+  <span id="status">Connecting…</span>
+  <span id="paramCount"></span>
+</footer>
+
+<script>
+(function(){
+'use strict';
+
+var PORT = {{PORT}};
+var GUID = '{{GUID}}';
+
+// ── Type colour map ───────────────────────────────
+var TYPE_COLORS = {
+  'float':'#3b82f6','double':'#3b82f6','number':'#3b82f6',
+  'int':'#8b5cf6','integer':'#8b5cf6',
+  'str':'#f59e0b','string':'#f59e0b',
+  'bool':'#22c55e','boolean':'#22c55e',
+  'point3d':'#ec4899','point':'#ec4899',
+  'vector3d':'#14b8a6','vector':'#14b8a6',
+  'brep':'#f97316','mesh':'#f97316','curve':'#f97316','surface':'#f97316','geometry':'#f97316',
+  'color':'#f97316','colour':'#f97316',
+  'domain':'#71717a','plane':'#71717a','line':'#71717a'
+};
+function typeColor(th){ return TYPE_COLORS[(th||'').toLowerCase()]||'#71717a'; }
+
+// ── State ─────────────────────────────────────────
+var ws, reconnectDelay=1000, live=false, dirty={};
+var params = [];
+var vals = {};
+var listModes = {};
+var touched = {};
+var paramSettings = {};
+
+var liveSw = document.getElementById('liveSw');
+var applyBtn = document.getElementById('applyBtn');
+var banner = document.getElementById('banner');
+var statusEl = document.getElementById('status');
+var paramCountEl = document.getElementById('paramCount');
+var cardContainer = document.getElementById('cardContainer');
+
+// ── Live toggle ───────────────────────────────────
+liveSw.onclick = function(){
+  live = !live;
+  liveSw.className = live ? 'switch on' : 'switch';
+  updateApplyBtn();
+  if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'setLive',guid:GUID,enabled:live}));
+};
+
+function updateApplyBtn(){
+  var count = Object.keys(dirty).length;
+  if(live){ applyBtn.style.display='none'; return; }
+  applyBtn.style.display='inline-flex';
+  applyBtn.innerHTML = count>0 ? 'Apply <span class="badge-count">'+count+'</span>' : 'Apply';
+}
+
+// ── Apply ─────────────────────────────────────────
+applyBtn.onclick = function(){
+  var o = {};
+  params.forEach(function(p){
+    if(!p.isWired && vals[p.name]!==undefined) o[p.name] = vals[p.name];
+  });
+  if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'apply',guid:GUID,values:o}));
+  dirty = {};
+  updateApplyBtn();
+};
+
+// ── WebSocket ─────────────────────────────────────
+function connect(){
+  statusEl.textContent = 'Connecting…';
+  ws = new WebSocket('ws://127.0.0.1:'+PORT+'/ws/node/'+GUID);
+  ws.onopen = function(){ banner.className=''; reconnectDelay=1000; statusEl.textContent='Connected'; };
+  ws.onclose = function(){ banner.className='show'; statusEl.textContent='Disconnected'; scheduleReconnect(); };
+  ws.onerror = function(){};
+  ws.onmessage = function(ev){
+    try{
+      var msg = JSON.parse(ev.data);
+      if(msg.type==='state') handleState(msg);
+    }catch(e){}
+  };
+}
+function scheduleReconnect(){
+  setTimeout(function(){ reconnectDelay=Math.min(reconnectDelay*2,30000); connect(); }, reconnectDelay);
+}
+
+// ── Handle state from server ──────────────────────
+function handleState(msg){
+  document.getElementById('scriptPath').textContent = msg.scriptPath||'';
+  if(typeof msg.liveMode==='boolean'){
+    live = msg.liveMode;
+    liveSw.className = live ? 'switch on' : 'switch';
+  }
+  params = msg.params||[];
+  paramCountEl.textContent = params.length + ' params';
+
+  params.forEach(function(p){
+    if(!touched[p.name] && p.manualValue!==undefined && p.manualValue!==null){
+      vals[p.name] = p.manualValue;
+    }
+    if(vals[p.name]===undefined || vals[p.name]===null){
+      vals[p.name] = defaultVal(p);
+    }
+    if(p.isList && listModes[p.name] === undefined){
+      listModes[p.name] = true;
+    }
+  });
+
+  renderCards();
+  updateApplyBtn();
+}
+
+function defaultVal(p){
+  var th = (p.typeHint||'').toLowerCase();
+  if(p['default']!=null && isNumeric(th)) return p['default'];
+  if(th==='bool'||th==='boolean') return false;
+  if(isNumeric(th)){
+    if(p.min!=null && p.max!=null) return p.min;
+    return 0;
+  }
+  if(th==='point3d'||th==='point'||th==='vector3d'||th==='vector') return '0,0,0';
+  return '';
+}
+
+function isNumeric(th){ return th==='float'||th==='double'||th==='number'||th==='int'||th==='integer'; }
+
+var GEO_TYPES = {'brep':1,'mesh':1,'curve':1,'surface':1,'geometry':1,'plane':1,'line':1};
+function isListable(th){ return !GEO_TYPES[th]; }
+
+// ── Throttled send ────────────────────────────────
+var _timers = {};
+function throttleSend(name, val){
+  if(_timers[name]) clearTimeout(_timers[name]);
+  _timers[name] = setTimeout(function(){ sendUpdate(name, val); }, 50);
+}
+function sendUpdate(name, val){
+  if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'update',guid:GUID,param:name,value:val}));
+}
+
+function markDirty(name, val){
+  vals[name] = val;
+  touched[name] = true;
+  if(live){
+    throttleSend(name, val);
+  } else {
+    dirty[name] = true;
+    updateApplyBtn();
+    sendStore(name, val);
+  }
+  resizeDrivenLists(name, val);
+}
+
+function resizeDrivenLists(driverName, driverVal){
+  var count = parseInt(driverVal);
+  if(isNaN(count) || count < 0) return;
+  var needRender = false;
+  params.forEach(function(p){
+    if(p.drivenBy === driverName){
+      var items = ensureArray(p, vals[p.name]);
+      var def = (p['default']!=null) ? p['default'] : defaultVal(p);
+      while(items.length < count) items.push(def);
+      if(items.length > count) items = items.slice(0, count);
+      vals[p.name] = items;
+      touched[p.name] = true;
+      if(live) throttleSend(p.name, items);
+      else { dirty[p.name] = true; sendStore(p.name, items); }
+      needRender = true;
+    }
+  });
+  if(needRender){ renderCards(); updateApplyBtn(); }
+}
+
+function ensureArray(p, v){
+  if(Array.isArray(v)) return v.slice();
+  if(typeof v==='string' && v.trim().charAt(0)==='['){ try{ return JSON.parse(v); }catch(e){} }
+  var th = (p.typeHint||'').toLowerCase();
+  if(v!=null && v!=='') return isNumeric(th) ? [parseFloat(v)||0] : [v];
+  return [];
+}
+
+var _storeTimers = {};
+function sendStore(name, val){
+  if(_storeTimers[name]) clearTimeout(_storeTimers[name]);
+  _storeTimers[name] = setTimeout(function(){
+    if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'store',guid:GUID,param:name,value:val}));
+  }, 80);
+}
+
+// ── Slider range defaults (paramSettings overrides survive re-renders) ──
+function getPS(name){ return paramSettings[name] || {}; }
+function sliderMin(p){
+  var ps = getPS(p.name); if(ps.min!=null) return ps.min;
+  if(p.min!=null) return p.min;
+  var th=(p.typeHint||'').toLowerCase();
+  if(th==='int'||th==='integer') return 0;
+  return 0;
+}
+function sliderMax(p){
+  var ps = getPS(p.name); if(ps.max!=null) return ps.max;
+  if(p.max!=null) return p.max;
+  var th=(p.typeHint||'').toLowerCase();
+  if(th==='int'||th==='integer') return 100;
+  return 1;
+}
+function sliderStep(p){
+  var ps = getPS(p.name); if(ps.step!=null) return ps.step;
+  if(p.step!=null) return p.step;
+  var th=(p.typeHint||'').toLowerCase();
+  if(th==='int'||th==='integer') return 1;
+  var range = sliderMax(p) - sliderMin(p);
+  return range / 200;
+}
+function sliderDecimals(p){
+  var ps = getPS(p.name); if(ps.dec!=null) return ps.dec;
+  if(p.decimals!=null) return p.decimals;
+  var th=(p.typeHint||'').toLowerCase();
+  if(th==='int'||th==='integer') return 0;
+  var s = sliderStep(p);
+  if(s>=1) return 0;
+  return Math.min(6, Math.max(1, Math.ceil(-Math.log10(s))));
+}
+
+// ──────────────────────────────────────────────────
+// CARD VIEW RENDERING
+// ──────────────────────────────────────────────────
+function renderCards(){
+  cardContainer.innerHTML = '';
+
+  var wiredParams = [];
+  var scalarParams = [];
+  var gridParams = [];
+
+  params.forEach(function(p){
+    if(p.isWired){
+      wiredParams.push(p);
+    } else if(listModes[p.name]){
+      gridParams.push(p);
+    } else {
+      scalarParams.push(p);
+    }
+  });
+
+  scalarParams.forEach(function(p){ cardContainer.appendChild(buildCard(p)); });
+
+  if(gridParams.length >= 2){
+    cardContainer.appendChild(buildLevelGrid(gridParams));
+  } else {
+    gridParams.forEach(function(p){ cardContainer.appendChild(buildCard(p)); });
+  }
+
+  wiredParams.forEach(function(p){ cardContainer.appendChild(buildCard(p)); });
+}
+
+// ──────────────────────────────────────────────────
+// LEVEL GRID (per-level table for list params)
+// ──────────────────────────────────────────────────
+function buildLevelGrid(listParams){
+  var wrap = el('div','level-grid');
+
+  var rowCount = 0;
+  listParams.forEach(function(p){
+    var arr = ensureArray(p, vals[p.name]);
+    vals[p.name] = arr;
+    if(arr.length > rowCount) rowCount = arr.length;
+  });
+  if(rowCount < 1) rowCount = 1;
+
+  listParams.forEach(function(p){
+    var arr = vals[p.name];
+    var def = (p['default']!=null) ? p['default'] : defaultVal(p);
+    while(arr.length < rowCount) arr.push(def);
+  });
+
+  var tb = el('div','level-grid-toolbar');
+  var title = el('span','level-grid-title'); title.textContent = 'Per-Level Parameters';
+  tb.appendChild(title);
+  var countLbl = el('span','level-grid-count'); countLbl.textContent = rowCount+' levels';
+  tb.appendChild(countLbl);
+  var spacer = el('span',''); spacer.style.flex='1'; tb.appendChild(spacer);
+
+  var addBtn = el('button','btn btn-ghost btn-sm'); addBtn.textContent='+ Level';
+  var rmBtn  = el('button','btn btn-ghost btn-sm'); rmBtn.textContent='\u2212 Level';
+  tb.appendChild(addBtn); tb.appendChild(rmBtn);
+  wrap.appendChild(tb);
+
+  var scroll = el('div','level-grid-scroll');
+  var table = document.createElement('table'); table.className='level-grid-table';
+  var thead = document.createElement('thead');
+  var headRow = document.createElement('tr');
+
+  var idxTh = document.createElement('th'); idxTh.className='idx-col'; idxTh.textContent='#';
+  headRow.appendChild(idxTh);
+
+  listParams.forEach(function(p){
+    var th = document.createElement('th');
+    var short = p.name.replace(/_per_level$/,'').replace(/_/g,' ');
+    th.textContent = short;
+    th.title = (p.meta||p.name) + (p.min!=null?' ['+p.min+'–'+p.max+']':'');
+    th.style.borderBottomColor = typeColor((p.typeHint||'').toLowerCase())+'80';
+
+    if(p.min!=null || p.max!=null){
+      var rng = document.createElement('span'); rng.className='col-range';
+      rng.textContent = (p.min!=null?p.min:'?')+' – '+(p.max!=null?p.max:'?');
+      th.appendChild(rng);
+    }
+    headRow.appendChild(th);
+  });
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  var tbody = document.createElement('tbody');
+
+  function syncGridParam(p){
+    touched[p.name] = true;
+    if(live) throttleSend(p.name, vals[p.name]);
+    else { dirty[p.name]=true; updateApplyBtn(); sendStore(p.name, vals[p.name]); }
+  }
+
+  function buildRows(){
+    tbody.innerHTML='';
+    for(var ri=0; ri<rowCount; ri++){
+      (function(idx){
+        var tr = document.createElement('tr');
+        var idxTd = document.createElement('td'); idxTd.className='row-idx'; idxTd.textContent=idx;
+        tr.appendChild(idxTd);
+
+        listParams.forEach(function(p){
+          var td = document.createElement('td');
+          var pth = (p.typeHint||'').toLowerCase();
+          var items = vals[p.name];
+
+          if(isNumeric(pth)){
+            var mn=sliderMin(p), mx=sliderMax(p), st=sliderStep(p), dec=sliderDecimals(p);
+            var cv = (items[idx]!=null) ? parseFloat(items[idx]) : 0;
+            if(isNaN(cv)) cv=0;
+
+            var inp = document.createElement('input');
+            inp.type='number'; inp.className='cell-input';
+            inp.min=mn; inp.max=mx; inp.step=st;
+            inp.value=formatNum(cv,dec);
+            inp.style.color = typeColor(pth);
+
+            inp.onchange = function(){
+              var nv = parseFloat(inp.value);
+              if(!isNaN(nv)){ items[idx]=nv; syncGridParam(p); }
+            };
+            inp.oninput = function(){
+              var nv = parseFloat(inp.value);
+              if(!isNaN(nv)){ items[idx]=nv; }
+            };
+            td.appendChild(inp);
+          } else if(pth==='bool'||pth==='boolean'){
+            var bv = !!items[idx];
+            var sw = el('div','bool-switch'+(bv?' on':''));
+            sw.style.margin='0 auto';
+            sw.onclick = function(){ bv=!bv; sw.className='bool-switch'+(bv?' on':''); items[idx]=bv; syncGridParam(p); };
+            td.appendChild(sw);
+          } else {
+            var ti = document.createElement('input'); ti.type='text'; ti.className='cell-input';
+            ti.value = String(items[idx]==null?'':items[idx]);
+            ti.onchange = function(){ items[idx]=ti.value; syncGridParam(p); };
+            td.appendChild(ti);
+          }
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      })(ri);
+    }
+  }
+
+  buildRows();
+  table.appendChild(tbody);
+  scroll.appendChild(table);
+  wrap.appendChild(scroll);
+
+  addBtn.onclick = function(){
+    rowCount++;
+    listParams.forEach(function(p){
+      var def = (p['default']!=null) ? p['default'] : defaultVal(p);
+      vals[p.name].push(def);
+      syncGridParam(p);
+    });
+    countLbl.textContent = rowCount+' levels';
+    buildRows();
+  };
+
+  rmBtn.onclick = function(){
+    if(rowCount<=1) return;
+    rowCount--;
+    listParams.forEach(function(p){
+      vals[p.name] = vals[p.name].slice(0,rowCount);
+      syncGridParam(p);
+    });
+    countLbl.textContent = rowCount+' levels';
+    buildRows();
+  };
+
+  return wrap;
+}
+
+function buildCard(p){
+  var card = el('div','param-card'+(p.isWired?' wired':''));
+  var th = (p.typeHint||'').toLowerCase();
+  var tc = typeColor(th);
+
+  // Header row
+  var hdr = el('div','param-header');
+  var dot = el('span','type-dot'); dot.style.background = tc; hdr.appendChild(dot);
+  var nm = el('span','param-name'); nm.textContent = p.name; hdr.appendChild(nm);
+  var badge = el('span','type-badge'); badge.textContent = p.typeHint||''; badge.style.color = tc; badge.style.borderColor = tc+'40'; hdr.appendChild(badge);
+
+  if(p.isWired){
+    var wb = el('span','wired-badge'); wb.textContent='wired'; hdr.appendChild(wb);
+  }
+
+  if(!p.isWired && isListable(th)){
+    var isDriven = !!p.drivenBy;
+    var lt = el('span','list-toggle');
+    lt.textContent = listModes[p.name] ? '⊟' : '⊞';
+    lt.title = listModes[p.name] ? 'Single mode' : 'List mode';
+    if(!isDriven){
+      lt.onclick = function(){ listModes[p.name] = !listModes[p.name]; renderCards(); };
+    }
+    hdr.appendChild(lt);
+  }
+
+  card.appendChild(hdr);
+
+  if(p.meta){
+    var meta = el('div','param-meta'); meta.textContent = p.meta; card.appendChild(meta);
+  }
+
+  if(p.drivenBy){
+    var db = el('div','param-meta'); db.textContent = 'list driven by ' + p.drivenBy;
+    db.style.fontStyle = 'italic'; card.appendChild(db);
+  }
+
+  if(p.isWired){
+    var wd = el('div','param-meta'); wd.textContent = '(wired from canvas)'; card.appendChild(wd);
+  } else if(listModes[p.name]){
+    card.appendChild(buildListPanel(p));
+  } else {
+    var ctrl = el('div','ctrl');
+    ctrl.appendChild(buildControl(p));
+    card.appendChild(ctrl);
+  }
+
+  return card;
+}
+
+// ── Build control per type ────────────────────────
+function buildControl(p){
+  var th = (p.typeHint||'').toLowerCase();
+  var v = vals[p.name];
+
+  if(th==='bool'||th==='boolean') return buildBool(p, v);
+  if(isNumeric(th)) return buildSlider(p, v);
+  if(th==='point3d'||th==='point'||th==='vector3d'||th==='vector') return buildXyz(p, v);
+  if(th==='domain') return buildDomain(p, v);
+  if(th==='color'||th==='colour') return buildColor(p, v);
+  return buildString(p, v);
+}
+
+// ── Numeric slider ────────────────────────────────
+function buildSlider(p, v){
+  var wrap = el('div','');
+  var row = el('div','slider-row');
+
+  var mn = sliderMin(p), mx = sliderMax(p), st = sliderStep(p), dec = sliderDecimals(p);
+  var cur = (v!=null && !isNaN(parseFloat(v))) ? parseFloat(v) : (p['default']!=null ? p['default'] : mn);
+
+  var rg = document.createElement('input'); rg.type='range';
+  rg.min=mn; rg.max=mx; rg.step=st;
+  rg.value = Math.max(mn, Math.min(mx, cur));
+  rg.style.flex='1';
+  setSliderColor(rg, p);
+
+  var inp = document.createElement('input'); inp.type='number'; inp.className='num-input';
+  inp.step=st; inp.value=formatNum(cur, dec);
+
+  rg.oninput = function(){
+    var nv = parseFloat(rg.value);
+    inp.value = formatNum(nv, dec);
+    markDirty(p.name, nv);
+  };
+  inp.oninput = function(){
+    var nv = parseFloat(inp.value);
+    if(!isNaN(nv)){
+      if(nv < parseFloat(rg.min)) rg.min = nv;
+      if(nv > parseFloat(rg.max)) rg.max = nv;
+      rg.value = nv;
+      markDirty(p.name, nv);
+    }
+  };
+
+  row.appendChild(rg);
+  row.appendChild(inp);
+
+  var gear = el('span','range-btn'); gear.textContent='⚙'; gear.title='Adjust range';
+  row.appendChild(gear);
+  wrap.appendChild(row);
+
+  var pop = el('div','range-pop');
+  pop.innerHTML = '<label>Min</label><input type="number" class="rp-min" value="'+mn+'">'
+    +'<label>Max</label><input type="number" class="rp-max" value="'+mx+'">'
+    +'<label>Step</label><input type="number" class="rp-step" value="'+st+'">'
+    +'<label>Dec</label><input type="number" class="rp-dec" value="'+dec+'" min="0" max="6" step="1">';
+  wrap.appendChild(pop);
+
+  gear.onclick = function(){ pop.className = pop.className.indexOf('open')>=0 ? 'range-pop' : 'range-pop open'; };
+  pop.oninput = function(){
+    var ps = paramSettings[p.name] || (paramSettings[p.name] = {});
+    var nMin = parseFloat(pop.querySelector('.rp-min').value);
+    var nMax = parseFloat(pop.querySelector('.rp-max').value);
+    var nStep = parseFloat(pop.querySelector('.rp-step').value);
+    var nDec = parseInt(pop.querySelector('.rp-dec').value);
+    if(!isNaN(nMin)){ rg.min = nMin; ps.min = nMin; }
+    if(!isNaN(nMax)){ rg.max = nMax; ps.max = nMax; }
+    if(!isNaN(nStep) && nStep>0){ rg.step = nStep; inp.step = nStep; ps.step = nStep; }
+    if(!isNaN(nDec) && nDec>=0){ dec = nDec; ps.dec = nDec; inp.value = formatNum(parseFloat(rg.value), dec); }
+  };
+
+  return wrap;
+}
+
+function setSliderColor(rg, p){
+  var tc = typeColor((p.typeHint||'').toLowerCase());
+  rg.style.accentColor = tc;
+}
+
+function formatNum(v, dec){ return (typeof dec==='number' && dec>=0) ? v.toFixed(dec) : String(v); }
+
+// ── Bool toggle ───────────────────────────────────
+function buildBool(p, v){
+  var sw = el('div','bool-switch'+(v?' on':''));
+  sw.onclick = function(){
+    var nv = !v;
+    v = nv;
+    sw.className = 'bool-switch'+(nv?' on':'');
+    markDirty(p.name, nv);
+  };
+  return sw;
+}
+
+// ── XYZ (Point3d / Vector3d) ──────────────────────
+function buildXyz(p, v){
+  var wrap = el('div','xyz-group');
+  var arr = parseXyz(v);
+  var tc = typeColor((p.typeHint||'').toLowerCase());
+  var th = (p.typeHint||'').toLowerCase();
+  var isVec = (th==='vector3d'||th==='vector');
+
+  var defaultRange = isVec ? {mn:-10, mx:10, st:0.1, dec:2} : {mn:-50000, mx:50000, st:1, dec:1};
+  if(p.min!=null) defaultRange.mn = p.min;
+  if(p.max!=null) defaultRange.mx = p.max;
+
+  ['X','Y','Z'].forEach(function(axis, i){
+    var axisWrap = el('div','');
+    var row = el('div','xyz-slider-row');
+
+    var lab = el('label',''); lab.textContent = axis; lab.style.color = tc;
+    row.appendChild(lab);
+
+    var mn = defaultRange.mn, mx = defaultRange.mx, st = defaultRange.st, dec = defaultRange.dec;
+    var cur = arr[i];
+    if(cur < mn) mn = cur - Math.abs(cur)*0.5;
+    if(cur > mx) mx = cur + Math.abs(cur)*0.5;
+
+    var rg = document.createElement('input'); rg.type='range';
+    rg.min=mn; rg.max=mx; rg.step=st; rg.value=cur;
+    rg.style.accentColor = tc;
+    row.appendChild(rg);
+
+    var inp = document.createElement('input'); inp.type='number'; inp.className='num-input';
+    inp.step=st; inp.value=formatNum(cur, dec);
+    row.appendChild(inp);
+
+    var gear = el('span','range-btn'); gear.textContent='⚙'; gear.title='Adjust range';
+    row.appendChild(gear);
+    axisWrap.appendChild(row);
+
+    var pop = el('div','range-pop');
+    pop.innerHTML = '<label>Min</label><input type="number" class="rp-min" value="'+mn+'">'
+      +'<label>Max</label><input type="number" class="rp-max" value="'+mx+'">'
+      +'<label>Step</label><input type="number" class="rp-step" value="'+st+'">'
+      +'<label>Dec</label><input type="number" class="rp-dec" value="'+dec+'" min="0" max="6" step="1">';
+    axisWrap.appendChild(pop);
+
+    gear.onclick = function(){ pop.className = pop.className.indexOf('open')>=0 ? 'range-pop' : 'range-pop open'; };
+    pop.oninput = function(){
+      var nMin=parseFloat(pop.querySelector('.rp-min').value);
+      var nMax=parseFloat(pop.querySelector('.rp-max').value);
+      var nStep=parseFloat(pop.querySelector('.rp-step').value);
+      var nDec=parseInt(pop.querySelector('.rp-dec').value);
+      if(!isNaN(nMin)) rg.min=nMin;
+      if(!isNaN(nMax)) rg.max=nMax;
+      if(!isNaN(nStep)&&nStep>0){ rg.step=nStep; inp.step=nStep; }
+      if(!isNaN(nDec)&&nDec>=0){ dec=nDec; inp.value=formatNum(parseFloat(rg.value),dec); }
+    };
+
+    rg.oninput = function(){
+      inp.value = formatNum(parseFloat(rg.value), dec);
+      arr[i] = parseFloat(rg.value);
+      markDirty(p.name, arr.join(','));
+    };
+    inp.oninput = function(){
+      var nv = parseFloat(inp.value);
+      if(!isNaN(nv)){
+        if(nv<parseFloat(rg.min)) rg.min=nv;
+        if(nv>parseFloat(rg.max)) rg.max=nv;
+        rg.value=nv;
+        arr[i]=nv;
+        markDirty(p.name, arr.join(','));
+      }
+    };
+
+    wrap.appendChild(axisWrap);
+  });
+  return wrap;
+}
+function parseXyz(v){
+  if(typeof v==='string'){ var ps=v.split(/[,; ]+/); return [parseFloat(ps[0])||0,parseFloat(ps[1])||0,parseFloat(ps[2])||0]; }
+  if(Array.isArray(v) && v.length>=3) return [v[0],v[1],v[2]];
+  return [0,0,0];
+}
+
+// ── Domain ────────────────────────────────────────
+function buildDomain(p, v){
+  var wrap = el('div','xyz-group');
+  var parts = (typeof v==='string') ? v.split(',') : [0,1];
+  var a = parseFloat(parts[0])||0, b = parseFloat(parts[1])||1;
+  var labels = ['Start','End'];
+  var vals_d = [a, b];
+
+  function sync(){ markDirty(p.name, vals_d[0]+','+vals_d[1]); }
+
+  labels.forEach(function(label, i){
+    var axisWrap = el('div','');
+    var row = el('div','xyz-slider-row');
+
+    var lab = el('label',''); lab.textContent = label; lab.style.color = 'var(--muted)'; lab.style.minWidth = '36px';
+    row.appendChild(lab);
+
+    var mn = (p.min!=null) ? p.min : -100, mx = (p.max!=null) ? p.max : 100;
+    var st = (p.step!=null) ? p.step : 0.01, dec = 2;
+    var cur = vals_d[i];
+    if(cur < mn) mn = cur - Math.abs(cur)*0.5;
+    if(cur > mx) mx = cur + Math.abs(cur)*0.5;
+
+    var rg = document.createElement('input'); rg.type='range';
+    rg.min=mn; rg.max=mx; rg.step=st; rg.value=cur;
+    rg.style.accentColor = 'var(--muted)';
+    row.appendChild(rg);
+
+    var inp = document.createElement('input'); inp.type='number'; inp.className='num-input';
+    inp.step=st; inp.value=formatNum(cur, dec);
+    row.appendChild(inp);
+
+    var gear = el('span','range-btn'); gear.textContent='⚙'; gear.title='Adjust range';
+    row.appendChild(gear);
+    axisWrap.appendChild(row);
+
+    var pop = el('div','range-pop');
+    pop.innerHTML = '<label>Min</label><input type="number" class="rp-min" value="'+mn+'">'
+      +'<label>Max</label><input type="number" class="rp-max" value="'+mx+'">'
+      +'<label>Step</label><input type="number" class="rp-step" value="'+st+'">'
+      +'<label>Dec</label><input type="number" class="rp-dec" value="'+dec+'" min="0" max="6" step="1">';
+    axisWrap.appendChild(pop);
+
+    gear.onclick = function(){ pop.className = pop.className.indexOf('open')>=0 ? 'range-pop' : 'range-pop open'; };
+    pop.oninput = function(){
+      var nMin=parseFloat(pop.querySelector('.rp-min').value);
+      var nMax=parseFloat(pop.querySelector('.rp-max').value);
+      var nStep=parseFloat(pop.querySelector('.rp-step').value);
+      var nDec=parseInt(pop.querySelector('.rp-dec').value);
+      if(!isNaN(nMin)) rg.min=nMin;
+      if(!isNaN(nMax)) rg.max=nMax;
+      if(!isNaN(nStep)&&nStep>0){ rg.step=nStep; inp.step=nStep; }
+      if(!isNaN(nDec)&&nDec>=0){ dec=nDec; inp.value=formatNum(parseFloat(rg.value),dec); }
+    };
+
+    rg.oninput = function(){
+      inp.value = formatNum(parseFloat(rg.value), dec);
+      vals_d[i] = parseFloat(rg.value);
+      sync();
+    };
+    inp.oninput = function(){
+      var nv = parseFloat(inp.value);
+      if(!isNaN(nv)){
+        if(nv<parseFloat(rg.min)) rg.min=nv;
+        if(nv>parseFloat(rg.max)) rg.max=nv;
+        rg.value=nv;
+        vals_d[i]=nv;
+        sync();
+      }
+    };
+
+    wrap.appendChild(axisWrap);
+  });
+  return wrap;
+}
+
+// ── Colour ────────────────────────────────────────
+function buildColor(p, v){
+  var wrap = el('div','color-row');
+  var hex = (typeof v==='string' && v[0]==='#') ? v : '#000000';
+
+  var swatch = document.createElement('input'); swatch.type='color'; swatch.className='color-swatch'; swatch.value=hex;
+  var hexInp = document.createElement('input'); hexInp.type='text'; hexInp.className='num-input color-hex'; hexInp.value=hex;
+
+  swatch.oninput = function(){ hexInp.value=swatch.value; markDirty(p.name, swatch.value); };
+  hexInp.oninput = function(){ if(/^#[0-9a-f]{6}$/i.test(hexInp.value)){ swatch.value=hexInp.value; markDirty(p.name, hexInp.value); }};
+
+  wrap.appendChild(swatch); wrap.appendChild(hexInp);
+  return wrap;
+}
+
+// ── String ────────────────────────────────────────
+function buildString(p, v){
+  var ta = document.createElement('textarea'); ta.className='str-input';
+  ta.value = (v!=null) ? String(v) : '';
+  ta.rows = (String(v||'').indexOf('\n')>=0) ? 4 : 1;
+  ta.oninput = function(){ markDirty(p.name, ta.value); };
+  return ta;
+}
+
+// ──────────────────────────────────────────────────
+// LIST MODE (data grid per param, all types)
+// ──────────────────────────────────────────────────
+function buildListPanel(p){
+  var panel = el('div','list-panel');
+  var th = (p.typeHint||'').toLowerCase();
+  var isDriven = !!p.drivenBy;
+
+  var items = ensureArray(p, vals[p.name]);
+  if(items.length === 0 && !isDriven){
+    var def = (p['default']!=null) ? p['default'] : defaultVal(p);
+    items.push(def);
+  }
+  vals[p.name] = items;
+
+  var tb = el('div','list-toolbar');
+  var countLbl = el('span',''); countLbl.style.cssText='font-size:11px;color:var(--muted)';
+  countLbl.textContent = items.length + ' items';
+
+  var addBtn = el('button','btn btn-ghost btn-sm'); addBtn.textContent = '+ Add';
+  var batchBtn = el('button','btn btn-ghost btn-sm'); batchBtn.textContent = '+ Batch';
+  if(isDriven){ addBtn.disabled=true; batchBtn.disabled=true; addBtn.style.opacity='0.35'; batchBtn.style.opacity='0.35'; }
+
+  tb.appendChild(countLbl);
+  tb.appendChild(el('span','')); tb.lastChild.style.flex='1';
+  tb.appendChild(addBtn);
+  tb.appendChild(batchBtn);
+  panel.appendChild(tb);
+
+  var grid = el('div','list-grid');
+  panel.appendChild(grid);
+
+  function syncValues(){
+    vals[p.name] = items.slice();
+    touched[p.name] = true;
+    if(live) throttleSend(p.name, items);
+    else { dirty[p.name] = true; updateApplyBtn(); sendStore(p.name, items); }
+    countLbl.textContent = items.length + ' items';
+  }
+
+  function listItemDefault(){
+    if(p['default']!=null) return p['default'];
+    if(isNumeric(th)){ return sliderMin(p); }
+    if(th==='bool'||th==='boolean') return false;
+    return '';
+  }
+
+  function renderRows(){
+    grid.innerHTML = '';
+    items.forEach(function(item, i){
+      var row = el('div','list-row');
+      var idx = el('span','idx'); idx.textContent = i; row.appendChild(idx);
+
+      if(isNumeric(th)){
+        var mn=sliderMin(p), mx=sliderMax(p), st=sliderStep(p), dec=sliderDecimals(p);
+        var cv = parseFloat(item)||0;
+        var rg = document.createElement('input'); rg.type='range';
+        rg.min=mn; rg.max=mx; rg.step=st;
+        rg.value=Math.max(mn, Math.min(mx, cv));
+        rg.style.flex='1'; rg.style.accentColor=typeColor(th);
+        var inp = document.createElement('input'); inp.type='number'; inp.className='num-input'; inp.step=st; inp.value=formatNum(cv,dec);
+        rg.oninput = function(){ inp.value=formatNum(parseFloat(rg.value),dec); items[i]=parseFloat(rg.value); syncValues(); };
+        inp.oninput = function(){
+          var nv=parseFloat(inp.value);
+          if(!isNaN(nv)){
+            if(nv<parseFloat(rg.min)) rg.min=nv;
+            if(nv>parseFloat(rg.max)) rg.max=nv;
+            rg.value=nv; items[i]=nv; syncValues();
+          }
+        };
+        row.appendChild(rg); row.appendChild(inp);
+      } else if(th==='bool'||th==='boolean'){
+        var bv = !!item;
+        var sw = el('div','bool-switch'+(bv?' on':''));
+        sw.style.flexShrink='0';
+        sw.onclick = function(){ bv=!bv; sw.className='bool-switch'+(bv?' on':''); items[i]=bv; syncValues(); };
+        row.appendChild(sw);
+      } else if(th==='color'||th==='colour'){
+        var hex = (typeof item==='string' && item[0]==='#') ? item : '#000000';
+        var csw = document.createElement('input'); csw.type='color'; csw.className='color-swatch'; csw.value=hex;
+        var chi = document.createElement('input'); chi.type='text'; chi.className='num-input color-hex'; chi.value=hex;
+        csw.oninput = function(){ chi.value=csw.value; items[i]=csw.value; syncValues(); };
+        chi.oninput = function(){ if(/^#[0-9a-f]{6}$/i.test(chi.value)){ csw.value=chi.value; items[i]=chi.value; syncValues(); }};
+        row.appendChild(csw); row.appendChild(chi);
+      } else {
+        var ti = document.createElement('input'); ti.type='text'; ti.className='num-input'; ti.style.flex='1'; ti.value=String(item==null?'':item);
+        ti.oninput = function(){ items[i]=ti.value; syncValues(); };
+        row.appendChild(ti);
+      }
+
+      if(!isDriven){
+        var del = el('span','del-btn'); del.textContent='✕'; del.title='Remove';
+        del.onclick = function(){ items.splice(i,1); syncValues(); renderRows(); };
+        row.appendChild(del);
+      }
+
+      grid.appendChild(row);
+    });
+  }
+
+  addBtn.onclick = function(){
+    if(isDriven) return;
+    items.push(listItemDefault());
+    syncValues(); renderRows();
+  };
+
+  batchBtn.onclick = function(){
+    if(isDriven) return;
+    var n = parseInt(prompt('How many items to add?','10'));
+    if(!n || n<1) return;
+    var mn=sliderMin(p), mx=sliderMax(p);
+    for(var bi=0; bi<n; bi++){
+      if(isNumeric(th)){
+        items.push(mn + (mx-mn) * bi/(Math.max(1,n-1)));
+      } else { items.push(listItemDefault()); }
+    }
+    syncValues(); renderRows();
+  };
+
+  renderRows();
+  return panel;
+}
+
+// ── Helpers ───────────────────────────────────────
+function el(tag, cls){
+  var e = document.createElement(tag);
+  if(cls) e.className = cls;
+  return e;
+}
+
+// ── Start ─────────────────────────────────────────
+connect();
+})();
+</script>
+</body>
+</html>

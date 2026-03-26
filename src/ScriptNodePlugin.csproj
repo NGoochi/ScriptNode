@@ -7,7 +7,7 @@
     <TargetExt>.gha</TargetExt>
     <NoWarn>NU1701;NETSDK1086</NoWarn>
     <RootNamespace>ScriptNodePlugin</RootNamespace>
-    <AssemblyName>ScriptNodePlugin</AssemblyName>
+    <AssemblyName>AlienNode</AssemblyName>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -33,12 +33,29 @@
     <Reference Include="$(PkgMicrosoft_NETFramework_ReferenceAssemblies_net48)\build\.NETFramework\v4.8\System.Windows.Forms.dll" Private="False" />
   </ItemGroup>
 
-  <!-- Post-build: copy .gha to Grasshopper Libraries folder -->
-  <Target Name="CopyToGrasshopperLibraries" AfterTargets="Build">
+  <!-- Web UI files: copy to output alongside .gha -->
+  <ItemGroup>
+    <Content Include="web\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- Post-build: copy .gha to Grasshopper Libraries folder (cross-platform) -->
+  <PropertyGroup>
+    <GH_Libraries Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(APPDATA)\Grasshopper\Libraries</GH_Libraries>
+    <GH_Libraries Condition="$([MSBuild]::IsOSPlatform('OSX'))">$(HOME)/Library/Application Support/McNeel/Rhinoceros/8.0/Plug-ins/Grasshopper (b45a29b1-4343-4035-989e-044e8580d9cf)/Libraries</GH_Libraries>
+  </PropertyGroup>
+
+  <Target Name="CopyToGrasshopperLibraries" AfterTargets="Build" Condition="'$(GH_Libraries)' != '' AND Exists('$(GH_Libraries)')">
     <Copy SourceFiles="$(TargetPath)"
-          DestinationFolder="$(APPDATA)\Grasshopper\Libraries"
+          DestinationFolder="$(GH_Libraries)"
           SkipUnchangedFiles="true" />
-    <Message Importance="High" Text="→ Copied $(TargetFileName) to Grasshopper Libraries" />
+    <ItemGroup>
+      <WebFiles Include="$(OutputPath)web\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(WebFiles)"
+          DestinationFolder="$(GH_Libraries)\web\%(RecursiveDir)"
+          SkipUnchangedFiles="true"
+          Condition="'@(WebFiles)' != ''" />
+    <Message Importance="High" Text="→ Copied $(TargetFileName) + web/ to $(GH_Libraries)" />
   </Target>
 
 </Project>

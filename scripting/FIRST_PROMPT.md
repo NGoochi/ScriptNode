@@ -64,7 +64,7 @@ However, ScriptNode is a general-purpose tool. The algorithms and project contex
 ### With Grasshopper (via MCP)
 The ScriptNode MCP server runs on `http://127.0.0.1:9876/mcp` and auto-starts when the first ScriptNode is placed on the canvas. You have 9 tools — see `MCP_WORKFLOW.md` for the full protocol. The critical loop is:
 
-1. Write or edit `.py` file (via `write_script_source` or external editor)
+1. Write or edit `.py` file (via `write_script_source` with `confirm_overwrite: true` when replacing a non-empty file — see `MCP_WORKFLOW.md` — or use an external editor)
 2. ScriptNode auto-reloads on save
 3. Call `get_scriptnode_info` → check runtime status
 4. If error → `get_error_log` → read traceback → fix → save → repeat

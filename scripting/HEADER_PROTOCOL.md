@@ -77,7 +77,7 @@ See `TYPE_LEXICON.md` for the full mapping including RhinoCommon namespaces and 
 
 ## Parameter metadata (`|` suffix) — Alien browser UI
 
-Optional **per-parameter** descriptions and slider hints for the Alien browser editor. Append `|` after the type, then a quoted description string. Structured keys `min=`, `max=`, `step=` may follow the closing quote (hybrid parsing also tries to read `Range: a – b` from the description text).
+Optional **per-parameter** descriptions and slider hints for the Alien browser editor. Append `|` after the type, then a quoted description string. Structured keys follow the closing quote.
 
 ```python
 # NODE_INPUTS: width:float | "Panel width (model units)" min=0.5 max=12.0 step=0.1
@@ -87,6 +87,19 @@ Optional **per-parameter** descriptions and slider hints for the Alien browser e
 - Metadata is **optional** — scripts without `|` behave as before.
 - **Do not** add a separate metadata block; everything stays on the same line as the parameter.
 - Commas inside double-quoted descriptions are supported; use commas **between** parameters only outside quotes.
+
+### Supported metadata keys
+
+| Key | Type | Effect |
+|-----|------|--------|
+| `min=` | number | Slider minimum. Also used for list item sliders. |
+| `max=` | number | Slider maximum. |
+| `step=` | number | Slider increment. |
+| `decimals=` | int | Explicit decimal places (overrides auto-detection from step). |
+| `default=` | number | Default value for the parameter and for new list items. If omitted, defaults to `min` for numeric types. |
+| `driven_by=` | param name | List count tracks another input's integer value (see below). |
+
+Hybrid parsing also tries to read `Range: a – b` from the description text when `min=`/`max=` are absent.
 
 ---
 
@@ -165,6 +178,46 @@ count = len(offset_curves)
 # NODE_OUTPUTS: report
 report = f"Received {sum(1 for x in [pt,vec,pln,ln,crv,srf,brp,msh,i,f,s,b,col,geo] if x is not None)} inputs"
 ```
+
+---
+
+## List Parameters and `driven_by`
+
+When a `list[Type]` input has `driven_by=other_param`, the Alien browser UI automatically keeps the list length in sync with the driver parameter's integer value. The user can still edit individual values, but Add / Remove buttons are disabled — the count is controlled by the driver.
+
+```python
+#! python 3
+# NODE_INPUTS: num_levels:int | "Above-ground levels" min=1 max=50 default=12, level_heights:list[float] | "Per-level heights" min=2500 max=6000 step=100 decimals=0 default=4000 driven_by=num_levels
+# NODE_OUTPUTS: result
+```
+
+When the user sets `num_levels` to 8, the `level_heights` list automatically gets 8 entries, each initialised to the `default` value (4000). If the user reduces `num_levels` to 5, the last 3 entries are removed.
+
+### Rules
+
+- `driven_by=` references one other input by name. The driver must be an `int` type.
+- Only one level of dependency is supported — no chaining (`A` drives `B` drives `C`).
+- If a `list[Type]` input does not have `driven_by`, the user can freely add/remove items in the browser UI.
+- The browser UI auto-enters list mode for any parameter declared as `list[Type]` in the header.
+- List mode is also available manually (toggle button) for all non-geometry types even without `list[Type]` in the header.
+
+---
+
+## Agent Convention: Pre-populating List Values
+
+When the scripting agent creates a node with list parameters, follow these practices:
+
+1. **Use `default=` for contextually appropriate starting values.** Don't rely on the midpoint of min/max — choose a value that makes sense for the domain. E.g., `default=4000` for floor heights in mm, `default=0.5` for normalized weights.
+
+2. **When calling `set_param_value` for a list, provide varied values.** Don't send `[4000, 4000, 4000]` — send values that reflect a plausible real scenario:
+   ```
+   set_param_value("level_heights", [4500, 4000, 3600, 3600, 3600, 3600, 3200, 4000])
+   ```
+   Ground/lobby floors are typically taller, top floors may differ, etc.
+
+3. **Declare `driven_by` whenever a parent-child count relationship exists.** This saves the user from manually resizing lists when they adjust a count parameter.
+
+4. **Always include `min=`, `max=`, `step=`, `decimals=` for numeric list items.** Without these, list item sliders use generic defaults (0–1 for float, 0–100 for int) which are rarely appropriate.
 
 ---
 

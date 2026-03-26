@@ -99,7 +99,7 @@ ScriptNode includes a built-in MCP (Model Context Protocol) server. It runs loca
 | `get_canvas_info` | Lists all components on the GH canvas with types, connections, and error status |
 | `get_scriptnode_info` | Deep-dive into a ScriptNode: script path, parsed header, runtime messages |
 | `get_script_source` | Reads the Python script file contents |
-| `write_script_source` | Writes new code to the Python file (triggers auto-reload) |
+| `write_script_source` | Writes new code to the Python file; non-empty overwrites need `confirm_overwrite: true` and create a timestamped `.bak` first |
 | `get_error_log` | Reads `gh_errors.log` for debugging |
 | `get_component_outputs` | Reads actual output values from any component |
 

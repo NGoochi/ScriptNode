@@ -37,6 +37,8 @@ namespace ScriptNodePlugin
         private static readonly Color ColDotAmber = Color.FromArgb(224, 160, 32);
         private static readonly Color ColDotRed = Color.FromArgb(220, 60, 60);
 
+        private static readonly string FontFamily = GetFontFamily();
+
         private RectangleF _loadFileRect;
 
         private new AlienNodeComponent Owner => (AlienNodeComponent)base.Owner;
@@ -52,8 +54,9 @@ namespace ScriptNodePlugin
             bool hasIO = rowCount > 0;
 
             float w = W_MIN;
-            using (var g = Graphics.FromHwnd(IntPtr.Zero))
-            using (var nameFont = new Font("Segoe UI", 7.5f))
+            using (var bmp = new Bitmap(1, 1))
+            using (var g = Graphics.FromImage(bmp))
+            using (var nameFont = new Font(FontFamily, 7.5f))
             {
                 foreach (var p in comp.Params.Input.Skip(1))
                     w = Math.Max(w, g.MeasureString(p.Name, nameFont).Width * 2 + PAD * 4 + 20);
@@ -130,7 +133,7 @@ namespace ScriptNodePlugin
             string title = string.IsNullOrEmpty(comp.ScriptPath)
                 ? "ALIEN"
                 : Path.GetFileNameWithoutExtension(comp.ScriptPath);
-            using var headerFont = new Font("Segoe UI", 9f, FontStyle.Bold);
+            using var headerFont = new Font(FontFamily, 9f, FontStyle.Bold);
             using var headerBrush = new SolidBrush(ColHeaderText);
             var headerTextRect = new RectangleF(x + PAD, y, w - PAD * 2, headerH);
             var headerFormat = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
@@ -169,7 +172,7 @@ namespace ScriptNodePlugin
                 using var divPen = new Pen(Color.FromArgb(40, 255, 255, 255), 0.75f);
                 g.DrawLine(divPen, x + halfW, ioTop + 2, x + halfW, ioTop + ioH - 2);
 
-                using var paramFont = new Font("Segoe UI", 7.5f);
+                using var paramFont = new Font(FontFamily, 7.5f);
                 using var paramBrush = new SolidBrush(ColIoText);
                 var leftFmt = new StringFormat { Alignment = StringAlignment.Near, LineAlignment = StringAlignment.Center };
                 var rightFmt = new StringFormat { Alignment = StringAlignment.Far, LineAlignment = StringAlignment.Center };
@@ -254,7 +257,7 @@ namespace ScriptNodePlugin
             using var sepPen = new Pen(Color.FromArgb(40, 255, 255, 255), 0.75f);
             g.DrawLine(sepPen, x + 4, y, x + w - 4, y);
 
-            using var font = new Font("Segoe UI", 7.5f);
+            using var font = new Font(FontFamily, 7.5f);
             using var brush = new SolidBrush(ColRowText);
             var textRect = new RectangleF(x + PAD, y, w - PAD * 2 - DOT_R * 2 - 8, ROW_H);
             var fmt = new StringFormat { Alignment = StringAlignment.Near, LineAlignment = StringAlignment.Center };
@@ -300,6 +303,14 @@ namespace ScriptNodePlugin
             path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
             path.CloseFigure();
             return path;
+        }
+
+        private static string GetFontFamily()
+        {
+            if (Environment.OSVersion.Platform == PlatformID.Unix ||
+                Environment.OSVersion.Platform == PlatformID.MacOSX)
+                return "Helvetica Neue";
+            return "Segoe UI";
         }
     }
 }
